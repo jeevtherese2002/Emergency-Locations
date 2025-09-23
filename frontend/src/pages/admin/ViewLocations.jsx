@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Phone, Edit, Trash2, Eye, EyeOff, X, Mail, Flame } from 'lucide-react';
+import { MapPin, Phone, Edit, Trash2, Eye, EyeOff, X, Mail } from 'lucide-react';
 import * as LucideIcons from "lucide-react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -14,20 +13,112 @@ const ViewLocations = ({ onMenuItemClick }) => {
   const [showEditForm, setShowEditForm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editingService, setEditingService] = useState(null);
+
+  // Existing local locations list (kept as-is)
   const [services, setServices] = useState([]);
+
+  // Services for the filter grid: NOW derived only from services that have locations
+  const [serviceTypes, setServiceTypes] = useState([]);
+
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
 
-  // Dummy data for emergency services
-  const emergencyCategories = [
-    { id: 'police', name: 'Police', icon: '🚔', color: 'bg-blue-500' },
-    { id: 'hospital', name: 'Hospital', icon: '🏥', color: 'bg-red-500' },
-    { id: 'fire', name: 'Fire Station', icon: '🚒', color: 'bg-orange-500' },
-    { id: 'ambulance', name: 'Ambulance', icon: '🚑', color: 'bg-green-500' },
-    { id: 'pharmacy', name: 'Pharmacy', icon: '💊', color: 'bg-purple-500' },
-    { id: 'gas', name: 'Gas Station', icon: '⛽', color: 'bg-yellow-500' },
-  ];
+  // Helpers (same mapping behavior as in AddLocation)
+  const colorClasses = {
+    'rose-500': 'text-rose-500',
+    'blue-600': 'text-blue-600',
+    'red-600': 'text-red-600',
+    'emerald-500': 'text-emerald-500',
+    'amber-500': 'text-amber-500',
+  };
 
+  const toPascal = (s) =>
+    String(s || "")
+      .split(/[-_ ]+/)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join("");
+
+  const buildCandidates = (raw) => {
+    if (!raw) return [];
+    const r = String(raw).trim();
+    const lower = r.toLowerCase();
+
+    const strippedIcon = lower.replace(/icon$/i, "");
+    const strippedLucide = strippedIcon.replace(/^lucide/i, "");
+    const stripNonAlnum = strippedLucide.replace(/[^a-z0-9]+/gi, "");
+
+    const candidates = new Set([
+      lower,
+      strippedIcon,
+      strippedLucide,
+      stripNonAlnum,
+      toPascal(lower),
+      toPascal(strippedIcon),
+      toPascal(strippedLucide),
+    ]);
+
+    return Array.from(candidates).filter(Boolean);
+  };
+
+  const getIconComponentById = (id) => {
+    if (!id) return LucideIcons.Hospital; // fallback
+    const candidates = buildCandidates(id);
+    for (const cand of candidates) {
+      const pascal = toPascal(cand);
+      if (LucideIcons[pascal]) return LucideIcons[pascal];
+      const exactLowerKey = Object.keys(LucideIcons).find(k => k.toLowerCase() === cand.toLowerCase());
+      if (exactLowerKey) return LucideIcons[exactLowerKey];
+    }
+    const lowerId = String(id).toLowerCase();
+    const keys = Object.keys(LucideIcons);
+    const includeMatch = keys.find(k => k.toLowerCase().includes(lowerId) || lowerId.includes(k.toLowerCase()));
+    if (includeMatch) return LucideIcons[includeMatch];
+    return LucideIcons.Hospital;
+  };
+
+  const getColorProps = (color) => {
+    if (!color) return { className: "", style: {} };
+    if (colorClasses[color]) {
+      return { className: colorClasses[color], style: {} };
+    }
+    return { className: "", style: { color } }; // assume hex/rgb/etc
+  };
+
+  // Init map (unchanged)
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+
+    mapRef.current = new mapboxgl.Map({
+      container: mapContainerRef.current,
+      style: "mapbox://styles/jeev1/cmf0j5j8r018l01sd5sdga9hz",
+      center: [76.5222, 9.590026],
+      zoom: 12,
+    });
+
+    mapRef.current.addControl(new mapboxgl.NavigationControl());
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const coords = [pos.coords.longitude, pos.coords.latitude];
+
+          new mapboxgl.Marker({ color: "blue" })
+            .setLngLat(coords)
+            .setPopup(new mapboxgl.Popup().setHTML("<b>Your Location</b>"))
+            .addTo(mapRef.current);
+
+          mapRef.current.flyTo({ center: coords, zoom: 14 });
+        },
+        () => {
+          console.warn("Location permission denied");
+        }
+      );
+    }
+
+    return () => mapRef.current?.remove();
+  }, []);
+
+  // Existing dummy locations (kept)
   const initialServices = [
     {
       id: 1,
@@ -84,44 +175,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
   ];
 
   useEffect(() => {
-  if (!mapContainerRef.current) return;
-
-  // Init map
-  mapRef.current = new mapboxgl.Map({
-    container: mapContainerRef.current,
-    style: "mapbox://styles/jeev1/cmf0j5j8r018l01sd5sdga9hz", // or your custom style
-    center: [76.5222, 9.590026], // fallback center
-    zoom: 12,
-  });
-
-  mapRef.current.addControl(new mapboxgl.NavigationControl());
-
-  // Get user location
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const coords = [pos.coords.longitude, pos.coords.latitude];
-
-        // add marker for user
-        new mapboxgl.Marker({ color: "blue" })
-          .setLngLat(coords)
-          .setPopup(new mapboxgl.Popup().setHTML("<b>Your Location</b>"))
-          .addTo(mapRef.current);
-
-        mapRef.current.flyTo({ center: coords, zoom: 14 });
-      },
-      () => {
-        console.warn("Location permission denied");
-      }
-    );
-  }
-
-  return () => mapRef.current?.remove();
-}, []);
-
-  useEffect(() => {
     setServices(initialServices);
-    // Simulate getting user location
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -139,17 +193,55 @@ const ViewLocations = ({ onMenuItemClick }) => {
     }
   }, []);
 
+  // IMPORTANT CHANGE: Fetch enabled locations and derive service types that have locations
+  useEffect(() => {
+    const fetchLocationsAndBuildServices = async () => {
+      try {
+        const res = await fetch(`${import.meta.env.VITE_BASE_URL}/api/locations`, {
+          method: "GET",
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await res.json();
 
-  
+        if (!res.ok) {
+          console.error("Failed to fetch locations:", data?.message);
+          return;
+        }
 
-  const toggleFilter = (categoryId) => {
+        const unique = new Map();
+        (data.data || []).forEach(loc => {
+          const s = loc?.serviceId;
+          if (s && s._id && !unique.has(s._id)) {
+            const rawIcon = s.icon || s.iconId || s.iconName;
+            unique.set(s._id, {
+              _id: s._id,
+              name: s.name,
+              iconId: String(rawIcon || "").trim(),
+              icon: rawIcon,
+              color: s.color,
+              IconComponent: getIconComponentById(rawIcon),
+            });
+          }
+        });
+
+        setServiceTypes(Array.from(unique.values()));
+      } catch (error) {
+        console.error("Failed to fetch locations:", error);
+      }
+    };
+
+    fetchLocationsAndBuildServices();
+  }, []);
+
+  const toggleFilter = (id) => {
     setSelectedFilters(prev =>
-      prev.includes(categoryId)
-        ? prev.filter(id => id !== categoryId)
-        : [...prev, categoryId]
+      prev.includes(id)
+        ? prev.filter(x => x !== id)
+        : [...prev, id]
     );
   };
 
+  // Existing filteredServices (kept; not tied to the map in this view)
   const filteredServices = selectedFilters.length === 0
     ? services
     : services.filter(service => selectedFilters.includes(service.category));
@@ -211,32 +303,42 @@ const ViewLocations = ({ onMenuItemClick }) => {
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      {/* Filter Section */}
+      {/* Filter Section - now shows only services that have locations */}
       <div className="border-b border-border bg-card shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <h2 className="text-lg font-semibold text-foreground mb-3">Admin Map View - Emergency Services</h2>
-          <div className="flex gap-3 overflow-x-auto scrollbar-hide">
-            {emergencyCategories.map((category) => (
-              <button
-                key={category.id}
-                onClick={() => toggleFilter(category.id)}
-                className={`flex-shrink-0 flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all duration-200 min-w-[80px] ${selectedFilters.includes(category.id)
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground'
-                  }`}
-              >
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${selectedFilters.includes(category.id) ? category.color : 'bg-muted'
-                  }`}>
-                  {category.icon}
-                </div>
-                <span className="text-xs font-medium text-center">{category.name}</span>
-              </button>
-            ))}
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            {serviceTypes.length > 0 ? (
+              serviceTypes.map((service) => {
+                const IconComponent = service.IconComponent || getIconComponentById(service.icon || service.iconId);
+                const colorProps = getColorProps(service.color);
+                const isSelected = selectedFilters.includes(service._id);
+
+                return (
+                  <button
+                    key={service._id}
+                    onClick={() => toggleFilter(service._id)}
+                    className={`p-4 border-2 rounded-lg transition-all hover:bg-accent flex flex-col items-center gap-2
+                      ${isSelected ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
+                  >
+                    <IconComponent className={`h-6 w-6 ${colorProps.className}`} style={colorProps.style} />
+                    <span className="text-xs font-medium text-center">
+                      {service.name || service.iconId}
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="col-span-full text-sm text-muted-foreground">
+                No services with locations available
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Map Area */}
+      {/* Map Area (unchanged) */}
       <div className="flex-1 relative bg-gradient-subtle">
         <div ref={mapContainerRef} className="absolute inset-0 h-full w-full" />
 
@@ -313,7 +415,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
           </div>
         )}
 
-        {/* Edit Form Popup */}
+        {/* Edit Form Popup (unchanged) */}
         {showEditForm && editingService && (
           <div className="absolute inset-4 bg-card border border-border rounded-lg shadow-elegant p-6 z-50 overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
@@ -357,13 +459,13 @@ const ViewLocations = ({ onMenuItemClick }) => {
                   <label className="block text-sm font-medium text-foreground mb-2">
                     Email *
                   </label>
-                  <input
-                    type="email"
-                    name="email"
-                    defaultValue={editingService.email}
-                    required
-                    className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-transparent"
-                  />
+                    <input
+                      type="email"
+                      name="email"
+                      defaultValue={editingService.email}
+                      required
+                      className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-transparent"
+                    />
                 </div>
               </div>
 
@@ -413,7 +515,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
           </div>
         )}
 
-        {/* Delete Confirmation Popup */}
+        {/* Delete Confirmation Popup (unchanged) */}
         {showDeleteConfirm && selectedService && (
           <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-card border border-border rounded-lg shadow-elegant p-6 max-w-md w-full">
