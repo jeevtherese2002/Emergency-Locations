@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, Phone, Edit, Trash2, Eye, EyeOff, X, Mail } from 'lucide-react';
 import * as LucideIcons from "lucide-react";
 import mapboxgl from "mapbox-gl";
+import { createRoot } from 'react-dom/client';
+import { toast } from 'react-toastify';
 import "mapbox-gl/dist/mapbox-gl.css";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -14,16 +16,30 @@ const ViewLocations = ({ onMenuItemClick }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editingService, setEditingService] = useState(null);
 
-  // Existing local locations list (kept as-is)
+  // demo list kept to avoid altering other UI logic
   const [services, setServices] = useState([]);
 
-  // Services for the filter grid: NOW derived only from services that have locations
+  // only services that have locations (tiles)
   const [serviceTypes, setServiceTypes] = useState([]);
+
+  // locations from API (we keep disabled in local state after toggles)
+  const [locations, setLocations] = useState([]);
 
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
+  const markersRef = useRef([]); // [{ marker, root, el, locId }]
 
-  // Helpers (same mapping behavior as in AddLocation)
+  const BASE_URL = import.meta.env.VITE_BASE_URL;
+
+  // safely unmount marker React roots after the current commit
+  const scheduleRootUnmount = (root) => {
+    if (!root?.unmount) return;
+    queueMicrotask(() => {
+      try { root.unmount(); } catch {}
+    });
+  };
+
+  // Helpers copied/adapted from AddLocation for icon + color resolution
   const colorClasses = {
     'rose-500': 'text-rose-500',
     'blue-600': 'text-blue-600',
@@ -84,7 +100,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
     return { className: "", style: { color } }; // assume hex/rgb/etc
   };
 
-  // Init map (unchanged)
+  // Init map
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
@@ -115,10 +131,17 @@ const ViewLocations = ({ onMenuItemClick }) => {
       );
     }
 
-    return () => mapRef.current?.remove();
+    return () => {
+      markersRef.current.forEach(({ marker, root }) => {
+        try { marker.remove(); } catch {}
+        scheduleRootUnmount(root);
+      });
+      markersRef.current = [];
+      mapRef.current?.remove();
+    };
   }, []);
 
-  // Existing dummy locations (kept)
+  // Demo list (kept)
   const initialServices = [
     {
       id: 1,
@@ -193,11 +216,11 @@ const ViewLocations = ({ onMenuItemClick }) => {
     }
   }, []);
 
-  // IMPORTANT CHANGE: Fetch enabled locations and derive service types that have locations
+  // Fetch locations (public: returns only enabled). We keep disabled locally after toggles.
   useEffect(() => {
-    const fetchLocationsAndBuildServices = async () => {
+    const fetchLocations = async () => {
       try {
-        const res = await fetch(`${import.meta.env.VITE_BASE_URL}/api/locations`, {
+        const res = await fetch(`${BASE_URL}/api/locations`, {
           method: "GET",
           headers: { 'Content-Type': 'application/json' },
         });
@@ -205,33 +228,131 @@ const ViewLocations = ({ onMenuItemClick }) => {
 
         if (!res.ok) {
           console.error("Failed to fetch locations:", data?.message);
+          toast.error(data?.message || "Failed to load locations");
           return;
         }
 
-        const unique = new Map();
-        (data.data || []).forEach(loc => {
+        const mappedLocations = (data.data || []).map(loc => {
           const s = loc?.serviceId;
-          if (s && s._id && !unique.has(s._id)) {
-            const rawIcon = s.icon || s.iconId || s.iconName;
-            unique.set(s._id, {
-              _id: s._id,
-              name: s.name,
-              iconId: String(rawIcon || "").trim(),
-              icon: rawIcon,
-              color: s.color,
-              IconComponent: getIconComponentById(rawIcon),
-            });
-          }
+          const rawIcon = s?.icon || s?.iconId || s?.iconName;
+          const serviceObj = s && s._id ? {
+            _id: s._id,
+            name: s.name,
+            iconId: String(rawIcon || "").trim(),
+            color: s.color,
+            IconComponent: getIconComponentById(rawIcon),
+          } : null;
+
+          return {
+            _id: loc._id,
+            name: loc.name,
+            address: loc.address,
+            phone1: loc.phone1,
+            phone2: loc.phone2,
+            email: loc.email,
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            isDisabled: !!loc.isDisabled,
+            status: loc.isDisabled ? 'disabled' : 'active',
+            selectedIcon: loc.selectedIcon,
+            service: serviceObj,
+          };
         });
 
-        setServiceTypes(Array.from(unique.values()));
+        setLocations(mappedLocations);
       } catch (error) {
         console.error("Failed to fetch locations:", error);
+        toast.error("Failed to load locations");
       }
     };
 
-    fetchLocationsAndBuildServices();
-  }, []);
+    fetchLocations();
+  }, [BASE_URL]);
+
+  // Keep service tiles in sync with current locations
+  useEffect(() => {
+    const unique = new Map();
+    locations.forEach(loc => {
+      const s = loc.service;
+      if (s && s._id && !unique.has(s._id)) {
+        unique.set(s._id, s);
+      }
+    });
+    setServiceTypes(Array.from(unique.values()));
+  }, [locations]);
+
+  // Render map markers with colored background and disabled overlay
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    // Clear existing markers (defer unmount of React roots)
+    markersRef.current.forEach(({ marker, root }) => {
+      try { marker.remove(); } catch {}
+      scheduleRootUnmount(root);
+    });
+    markersRef.current = [];
+
+    const filtered = selectedFilters.length === 0
+      ? locations
+      : locations.filter(l => l.service && selectedFilters.includes(l.service._id));
+
+    filtered.forEach(loc => {
+      if (!isFinite(loc.longitude) || !isFinite(loc.latitude)) return;
+      const IconComponent = loc.service?.IconComponent || getIconComponentById(loc.service?.iconId || loc.selectedIcon);
+      const bg = loc.service?.color || '#2563eb';
+
+      const el = document.createElement('div');
+      el.style.display = 'flex';
+      el.style.alignItems = 'center';
+      el.style.justifyContent = 'center';
+      el.style.width = '36px';
+      el.style.height = '36px';
+      el.style.borderRadius = '50%';
+      el.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)';
+      el.style.background = bg;
+      el.style.cursor = 'pointer';
+
+      const root = createRoot(el);
+      root.render(
+        <div style={{ position: 'relative' }}>
+          <IconComponent style={{ color: '#ffffff', width: 22, height: 22, opacity: loc.isDisabled ? 0.6 : 1 }} />
+          {loc.isDisabled && (
+            <EyeOff
+              style={{
+                position: 'absolute',
+                right: -2,
+                bottom: -2,
+                width: 12,
+                height: 12,
+                color: '#ffffff', // white so it’s visible on colored bg
+                filter: 'drop-shadow(0 0 2px rgba(0,0,0,0.5))',
+                backgroundColor: 'transparent',
+                borderRadius: '50%',
+                pointerEvents: 'none',
+              }}
+            />
+          )}
+        </div>
+      );
+
+      el.addEventListener('click', () => {
+        setSelectedService({ ...loc });
+      });
+
+      const marker = new mapboxgl.Marker(el)
+        .setLngLat([loc.longitude, loc.latitude])
+        .addTo(mapRef.current);
+
+      markersRef.current.push({ marker, root, el, locId: loc._id });
+    });
+
+    // Optional: fit bounds
+    // if (filtered.length > 0) {
+    //   const bounds = new mapboxgl.LngLatBounds();
+    //   filtered.forEach(l => bounds.extend([l.longitude, l.latitude]));
+    //   mapRef.current.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 500 });
+    // }
+  }, [locations, selectedFilters]);
 
   const toggleFilter = (id) => {
     setSelectedFilters(prev =>
@@ -241,69 +362,153 @@ const ViewLocations = ({ onMenuItemClick }) => {
     );
   };
 
-  // Existing filteredServices (kept; not tied to the map in this view)
+  // DEMO list filtered (not tied to map)
   const filteredServices = selectedFilters.length === 0
     ? services
     : services.filter(service => selectedFilters.includes(service.category));
 
-  const handleServiceClick = (service) => {
-    setSelectedService(service);
+  // Backend: toggle status
+  const toggleStatusLocation = async (loc) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      toast.error("You must be logged in as admin to change status");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${BASE_URL}/api/locations/${loc._id}/toggle`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast.error(data?.message || "Failed to toggle status");
+        return;
+      }
+
+      const newIsDisabled = !!data?.data?.isDisabled;
+      setLocations(prev => prev.map(l => l._id === loc._id
+        ? { ...l, isDisabled: newIsDisabled, status: newIsDisabled ? 'disabled' : 'active' }
+        : l
+      ));
+      setSelectedService(prev => prev && prev._id === loc._id
+        ? { ...prev, isDisabled: newIsDisabled, status: newIsDisabled ? 'disabled' : 'active' }
+        : prev
+      );
+
+      toast.success(`Location ${newIsDisabled ? "disabled" : "enabled"} successfully`);
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to toggle status");
+    }
   };
 
-  const handleEdit = (service) => {
-    setEditingService(service);
+  // Backend: edit location (PUT /api/locations/:id) — requires backend endpoint
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = {
+      name: fd.get('name'),
+      address: fd.get('address'),
+      phone1: fd.get('phone1'),
+      phone2: fd.get('phone2'),
+      email: fd.get('email'),
+    };
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      toast.error("You must be logged in as admin to edit");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${BASE_URL}/api/locations/${editingService._id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast.error(data?.message || "Failed to update location (ensure backend PUT /api/locations/:id exists)");
+        return;
+      }
+
+      // Prefer data.data if backend returns updated doc; otherwise merge payload
+      const updated = data?.data || { ...editingService, ...payload };
+
+      setLocations(prev => prev.map(l => (l._id === editingService._id ? { ...l, ...updated } : l)));
+      setSelectedService(prev => (prev && prev._id === editingService._id ? { ...prev, ...updated } : prev));
+      setShowEditForm(false);
+      setEditingService(null);
+
+      toast.success("Location updated successfully");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to update location");
+    }
+  };
+
+  // Backend: delete location (DELETE /api/locations/:id) — requires backend endpoint
+  const confirmDelete = async () => {
+    if (!selectedService?._id) return;
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      toast.error("You must be logged in as admin to delete");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${BASE_URL}/api/locations/${selectedService._id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      // Some backends don't return JSON on delete; guard parsing
+      let data = null;
+      try { data = await res.json(); } catch {}
+
+      if (!res.ok) {
+        toast.error((data && data.message) || "Failed to delete location (ensure backend DELETE /api/locations/:id exists)");
+        return;
+      }
+
+      setLocations(prev => prev.filter(l => l._id !== selectedService._id));
+      setShowDeleteConfirm(false);
+      setSelectedService(null);
+
+      toast.success("Location deleted successfully");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to delete location");
+    }
+  };
+
+  // Begin edit flow for a location
+  const handleEdit = (loc) => {
+    setEditingService({ ...loc });
     setShowEditForm(true);
   };
 
-  const handleDelete = (service) => {
-    setSelectedService(service);
+  // Delete prompt
+  const handleDelete = (loc) => {
+    setSelectedService({ ...loc });
     setShowDeleteConfirm(true);
-  };
-
-  const confirmDelete = () => {
-    setServices(prev => prev.filter(s => s.id !== selectedService.id));
-    setShowDeleteConfirm(false);
-    setSelectedService(null);
-  };
-
-  const toggleStatus = (service) => {
-    setServices(prev => prev.map(s =>
-      s.id === service.id
-        ? { ...s, status: s.status === 'active' ? 'disabled' : 'active' }
-        : s
-    ));
-    if (selectedService && selectedService.id === service.id) {
-      setSelectedService({ ...service, status: service.status === 'active' ? 'disabled' : 'active' });
-    }
-  };
-
-  const handleEditSubmit = (e) => {
-    e.preventDefault();
-    const formData = new FormData(e.target);
-    const updatedService = {
-      ...editingService,
-      name: formData.get('name'),
-      address: formData.get('address'),
-      phone: formData.get('phone'),
-      phone2: formData.get('phone2'),
-      email: formData.get('email'),
-    };
-
-    setServices(prev => prev.map(s =>
-      s.id === editingService.id ? updatedService : s
-    ));
-
-    if (selectedService && selectedService.id === editingService.id) {
-      setSelectedService(updatedService);
-    }
-
-    setShowEditForm(false);
-    setEditingService(null);
   };
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      {/* Filter Section - now shows only services that have locations */}
+      {/* Filter Section - services that have locations */}
       <div className="border-b border-border bg-card shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <h2 className="text-lg font-semibold text-foreground mb-3">Admin Map View - Emergency Services</h2>
@@ -338,11 +543,11 @@ const ViewLocations = ({ onMenuItemClick }) => {
         </div>
       </div>
 
-      {/* Map Area (unchanged) */}
+      {/* Map Area */}
       <div className="flex-1 relative bg-gradient-subtle">
         <div ref={mapContainerRef} className="absolute inset-0 h-full w-full" />
 
-        {/* Service Details Popup */}
+        {/* Location Details Popup */}
         {selectedService && !showEditForm && !showDeleteConfirm && (
           <div className="absolute inset-x-4 bottom-4 bg-card border border-border rounded-lg shadow-elegant p-4 z-50">
             <div className="flex justify-between items-start mb-3">
@@ -362,7 +567,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
                 </p>
                 <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
                   <Phone className="w-4 h-4" />
-                  {selectedService.phone}
+                  {selectedService.phone1}
                   {selectedService.phone2 && (
                     <>
                       <Phone className="w-4 h-4 ml-4" />
@@ -385,7 +590,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
 
             <div className="flex gap-2">
               <button
-                onClick={() => toggleStatus(selectedService)}
+                onClick={() => toggleStatusLocation(selectedService)}
                 className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors duration-200 flex items-center justify-center gap-2 ${selectedService.status === 'active'
                   ? 'bg-orange-500 text-white hover:bg-orange-600'
                   : 'bg-green-500 text-white hover:bg-green-600'
@@ -415,11 +620,11 @@ const ViewLocations = ({ onMenuItemClick }) => {
           </div>
         )}
 
-        {/* Edit Form Popup (unchanged) */}
+        {/* Edit Form Popup */}
         {showEditForm && editingService && (
           <div className="absolute inset-4 bg-card border border-border rounded-lg shadow-elegant p-6 z-50 overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold text-foreground">Edit Service</h3>
+              <h3 className="text-xl font-semibold text-foreground">Edit Location</h3>
               <button
                 onClick={() => setShowEditForm(false)}
                 className="text-muted-foreground hover:text-foreground p-1"
@@ -459,13 +664,13 @@ const ViewLocations = ({ onMenuItemClick }) => {
                   <label className="block text-sm font-medium text-foreground mb-2">
                     Email *
                   </label>
-                    <input
-                      type="email"
-                      name="email"
-                      defaultValue={editingService.email}
-                      required
-                      className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-transparent"
-                    />
+                  <input
+                    type="email"
+                    name="email"
+                    defaultValue={editingService.email}
+                    required
+                    className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-transparent"
+                  />
                 </div>
               </div>
 
@@ -476,8 +681,8 @@ const ViewLocations = ({ onMenuItemClick }) => {
                   </label>
                   <input
                     type="tel"
-                    name="phone"
-                    defaultValue={editingService.phone}
+                    name="phone1"
+                    defaultValue={editingService.phone1}
                     required
                     className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
@@ -515,7 +720,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
           </div>
         )}
 
-        {/* Delete Confirmation Popup (unchanged) */}
+        {/* Delete Confirmation Popup */}
         {showDeleteConfirm && selectedService && (
           <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-card border border-border rounded-lg shadow-elegant p-6 max-w-md w-full">
@@ -523,7 +728,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
                 <div className="w-12 h-12 bg-red-100 dark:bg-red-900 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Trash2 className="w-6 h-6 text-red-600 dark:text-red-400" />
                 </div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">Delete Service</h3>
+                <h3 className="text-lg font-semibold text-foreground mb-2">Delete Location</h3>
                 <p className="text-muted-foreground mb-6">
                   Are you sure you want to delete "{selectedService.name}"? This action cannot be undone.
                 </p>
