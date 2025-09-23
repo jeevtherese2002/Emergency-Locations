@@ -17,9 +17,9 @@ export const getLocations = async (req, res) => {
 // Add a new location
 export const addLocation = async (req, res) => {
     try {
-        const { serviceId, name, address, phone1, phone2, latitude, longitude, selectedIcon } = req.body;
+        const { serviceId, name, address, phone1, phone2, email, latitude, longitude, selectedIcon } = req.body;
 
-        if (!serviceId || !name || !address || !phone1 || !latitude || !longitude || !selectedIcon) {
+        if (!serviceId || !name || !address || !phone1 || !email || !latitude || !longitude || !selectedIcon) {
             return res.status(400).json({ success: false, message: "Missing required fields" });
         }
 
@@ -29,6 +29,7 @@ export const addLocation = async (req, res) => {
             address,
             phone1,
             phone2,
+            email,
             latitude,
             longitude,
             selectedIcon,

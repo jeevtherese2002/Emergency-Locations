@@ -1,5 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { MapPin, Phone, Share2, Navigation, Edit, Trash2, Eye, EyeOff, X, View } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { MapPin, Phone, Edit, Trash2, Eye, EyeOff, X, Mail, Flame } from 'lucide-react';
+import * as LucideIcons from "lucide-react";
+import mapboxgl from "mapbox-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
+
+
+mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
 const ViewLocations = ({ onMenuItemClick }) => {
   const [selectedFilters, setSelectedFilters] = useState([]);
@@ -9,6 +15,8 @@ const ViewLocations = ({ onMenuItemClick }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editingService, setEditingService] = useState(null);
   const [services, setServices] = useState([]);
+  const mapContainerRef = useRef(null);
+  const mapRef = useRef(null);
 
   // Dummy data for emergency services
   const emergencyCategories = [
@@ -28,6 +36,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
       address: '123 Main St, Downtown',
       phone: '+1 234 567 8900',
       phone2: '',
+      email: "jerry@gmail.com",
       lat: 40.7128,
       lng: -74.0060,
       status: 'active',
@@ -40,6 +49,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
       address: '456 Health Ave, Medical District',
       phone: '+1 234 567 8901',
       phone2: '+1 234 567 8911',
+      email: "jerry@gmail.com",
       lat: 40.7580,
       lng: -73.9855,
       status: 'active',
@@ -52,6 +62,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
       address: '789 Fire Rd, Safety Zone',
       phone: '+1 234 567 8902',
       phone2: '',
+      email: "jerry@gmail.com",
       lat: 40.7306,
       lng: -73.9352,
       status: 'disabled',
@@ -64,12 +75,49 @@ const ViewLocations = ({ onMenuItemClick }) => {
       address: '321 Rescue Blvd, Emergency District',
       phone: '+1 234 567 8903',
       phone2: '',
+      email: "jerry@gmail.com",
       lat: 40.7831,
       lng: -73.9712,
       status: 'active',
       icon: '🚑'
     },
   ];
+
+  useEffect(() => {
+  if (!mapContainerRef.current) return;
+
+  // Init map
+  mapRef.current = new mapboxgl.Map({
+    container: mapContainerRef.current,
+    style: "mapbox://styles/jeev1/cmf0j5j8r018l01sd5sdga9hz", // or your custom style
+    center: [76.5222, 9.590026], // fallback center
+    zoom: 12,
+  });
+
+  mapRef.current.addControl(new mapboxgl.NavigationControl());
+
+  // Get user location
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const coords = [pos.coords.longitude, pos.coords.latitude];
+
+        // add marker for user
+        new mapboxgl.Marker({ color: "blue" })
+          .setLngLat(coords)
+          .setPopup(new mapboxgl.Popup().setHTML("<b>Your Location</b>"))
+          .addTo(mapRef.current);
+
+        mapRef.current.flyTo({ center: coords, zoom: 14 });
+      },
+      () => {
+        console.warn("Location permission denied");
+      }
+    );
+  }
+
+  return () => mapRef.current?.remove();
+}, []);
 
   useEffect(() => {
     setServices(initialServices);
@@ -91,16 +139,19 @@ const ViewLocations = ({ onMenuItemClick }) => {
     }
   }, []);
 
+
+  
+
   const toggleFilter = (categoryId) => {
-    setSelectedFilters(prev => 
-      prev.includes(categoryId) 
+    setSelectedFilters(prev =>
+      prev.includes(categoryId)
         ? prev.filter(id => id !== categoryId)
         : [...prev, categoryId]
     );
   };
 
-  const filteredServices = selectedFilters.length === 0 
-    ? services 
+  const filteredServices = selectedFilters.length === 0
+    ? services
     : services.filter(service => selectedFilters.includes(service.category));
 
   const handleServiceClick = (service) => {
@@ -124,8 +175,8 @@ const ViewLocations = ({ onMenuItemClick }) => {
   };
 
   const toggleStatus = (service) => {
-    setServices(prev => prev.map(s => 
-      s.id === service.id 
+    setServices(prev => prev.map(s =>
+      s.id === service.id
         ? { ...s, status: s.status === 'active' ? 'disabled' : 'active' }
         : s
     ));
@@ -143,16 +194,17 @@ const ViewLocations = ({ onMenuItemClick }) => {
       address: formData.get('address'),
       phone: formData.get('phone'),
       phone2: formData.get('phone2'),
+      email: formData.get('email'),
     };
-    
-    setServices(prev => prev.map(s => 
+
+    setServices(prev => prev.map(s =>
       s.id === editingService.id ? updatedService : s
     ));
-    
+
     if (selectedService && selectedService.id === editingService.id) {
       setSelectedService(updatedService);
     }
-    
+
     setShowEditForm(false);
     setEditingService(null);
   };
@@ -168,15 +220,13 @@ const ViewLocations = ({ onMenuItemClick }) => {
               <button
                 key={category.id}
                 onClick={() => toggleFilter(category.id)}
-                className={`flex-shrink-0 flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all duration-200 min-w-[80px] ${
-                  selectedFilters.includes(category.id)
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground'
-                }`}
+                className={`flex-shrink-0 flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all duration-200 min-w-[80px] ${selectedFilters.includes(category.id)
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                  }`}
               >
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${
-                  selectedFilters.includes(category.id) ? category.color : 'bg-muted'
-                }`}>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${selectedFilters.includes(category.id) ? category.color : 'bg-muted'
+                  }`}>
                   {category.icon}
                 </div>
                 <span className="text-xs font-medium text-center">{category.name}</span>
@@ -188,57 +238,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
 
       {/* Map Area */}
       <div className="flex-1 relative bg-gradient-subtle">
-        {/* Mock Map Container */}
-        <div className="absolute inset-0 bg-gradient-to-br from-green-50 to-blue-50 dark:from-green-950 dark:to-blue-950">
-          {/* User Location Marker */}
-          {userLocation && (
-            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-              <div className="relative">
-                <div className="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-lg"></div>
-                <div className="absolute inset-0 w-4 h-4 bg-blue-500 rounded-full animate-ping opacity-75"></div>
-              </div>
-              <span className="absolute top-6 left-1/2 transform -translate-x-1/2 text-xs bg-black text-white px-2 py-1 rounded whitespace-nowrap">
-                Your Location
-              </span>
-            </div>
-          )}
-
-          {/* Service Markers */}
-          {filteredServices.map((service, index) => {
-            const category = emergencyCategories.find(cat => cat.id === service.category);
-            return (
-              <div
-                key={service.id}
-                className={`absolute cursor-pointer transform -translate-x-1/2 -translate-y-1/2 transition-transform hover:scale-110 ${
-                  service.status === 'disabled' ? 'opacity-50' : ''
-                }`}
-                style={{
-                  top: `${30 + (index * 10) % 40}%`,
-                  left: `${25 + (index * 15) % 50}%`,
-                }}
-                onClick={() => handleServiceClick(service)}
-              >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-lg shadow-lg border-2 border-white ${category.color} relative`}>
-                  {category.icon}
-                  {service.status === 'disabled' && (
-                    <div className="absolute inset-0 bg-black bg-opacity-50 rounded-full flex items-center justify-center">
-                      <EyeOff className="w-3 h-3 text-white" />
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-
-          {/* Map Placeholder Text */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="text-center text-muted-foreground">
-              <MapPin className="w-16 h-16 mx-auto mb-4 opacity-30" />
-              <p className="text-lg font-medium">Admin Map View</p>
-              <p className="text-sm">Click on service markers to manage</p>
-            </div>
-          </div>
-        </div>
+        <div ref={mapContainerRef} className="absolute inset-0 h-full w-full" />
 
         {/* Service Details Popup */}
         {selectedService && !showEditForm && !showDeleteConfirm && (
@@ -247,11 +247,10 @@ const ViewLocations = ({ onMenuItemClick }) => {
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <h3 className="text-lg font-semibold text-foreground">{selectedService.name}</h3>
-                  <span className={`px-2 py-1 text-xs rounded-full ${
-                    selectedService.status === 'active' 
-                      ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                      : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                  }`}>
+                  <span className={`px-2 py-1 text-xs rounded-full ${selectedService.status === 'active'
+                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                    : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                    }`}>
                     {selectedService.status}
                   </span>
                 </div>
@@ -263,8 +262,15 @@ const ViewLocations = ({ onMenuItemClick }) => {
                   <Phone className="w-4 h-4" />
                   {selectedService.phone}
                   {selectedService.phone2 && (
-                    <span className="ml-2">• {selectedService.phone2}</span>
+                    <>
+                      <Phone className="w-4 h-4 ml-4" />
+                      {selectedService.phone2}
+                    </>
                   )}
+                </p>
+                <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
+                  <Mail className="w-4 h-4" />
+                  {selectedService.email}
                 </p>
               </div>
               <button
@@ -278,11 +284,10 @@ const ViewLocations = ({ onMenuItemClick }) => {
             <div className="flex gap-2">
               <button
                 onClick={() => toggleStatus(selectedService)}
-                className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors duration-200 flex items-center justify-center gap-2 ${
-                  selectedService.status === 'active'
-                    ? 'bg-orange-500 text-white hover:bg-orange-600'
-                    : 'bg-green-500 text-white hover:bg-green-600'
-                }`}
+                className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors duration-200 flex items-center justify-center gap-2 ${selectedService.status === 'active'
+                  ? 'bg-orange-500 text-white hover:bg-orange-600'
+                  : 'bg-green-500 text-white hover:bg-green-600'
+                  }`}
               >
                 {selectedService.status === 'active' ? (
                   <><EyeOff className="w-4 h-4" /> Disable</>
@@ -320,7 +325,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
+
             <form onSubmit={handleEditSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">
@@ -334,20 +339,34 @@ const ViewLocations = ({ onMenuItemClick }) => {
                   className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-transparent"
                 />
               </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Address *
-                </label>
-                <textarea
-                  name="address"
-                  defaultValue={editingService.address}
-                  required
-                  rows="3"
-                  className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
-                />
+
+              <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    Address *
+                  </label>
+                  <textarea
+                    name="address"
+                    defaultValue={editingService.address}
+                    required
+                    rows="3"
+                    className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    Email *
+                  </label>
+                  <input
+                    type="email"
+                    name="email"
+                    defaultValue={editingService.email}
+                    required
+                    className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-transparent"
+                  />
+                </div>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-2">
@@ -361,7 +380,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
                     className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-2">
                     Secondary Phone
@@ -374,7 +393,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
                   />
                 </div>
               </div>
-              
+
               <div className="flex gap-3 pt-4">
                 <button
                   type="submit"

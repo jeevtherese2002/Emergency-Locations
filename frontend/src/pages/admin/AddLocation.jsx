@@ -9,22 +9,23 @@ import { Badge } from "../../components/ui/badge";
 import AdminMap from "./AdminMap";
 import AddServiceIconModal from "./AddServiceIconModal";
 import * as LucideIcons from "lucide-react";
-import { Plus, Building2, MapPin, Phone, Hospital, Shield, Flame, Car, Zap } from 'lucide-react';
+import { Plus, Building2, MapPin, Phone, Hospital, Shield, Flame, Car, Zap, Mail } from 'lucide-react';
 import { toast } from 'react-toastify'
 
 const AddLocation = () => {
-const [formData, setFormData] = useState({
-  name: '',
-  serviceType: '',
-  newServiceType: '',
-  phone1: '',
-  phone2: '',
-  address: '',
-  latitude: null,
-  longitude: null,
-  selectedIcon: null,
-  selectedIconColor: null
-});
+  const [formData, setFormData] = useState({
+    name: '',
+    serviceType: '',
+    newServiceType: '',
+    phone1: '',
+    phone2: '',
+    email: '',
+    address: '',
+    latitude: null,
+    longitude: null,
+    selectedIcon: null,
+    selectedIconColor: null
+  });
   const [serviceTypes, setServiceTypes] = useState([]);
   const [isIconModalOpen, setIsIconModalOpen] = useState(false);
   const [showNewServiceType, setShowNewServiceType] = useState(false);
@@ -119,47 +120,47 @@ const [formData, setFormData] = useState({
   };
 
 
-useEffect(() => {
-  const fetchServices = async () => {
-    try {
-      const res = await fetch(`${import.meta.env.VITE_BASE_URL}/api/services`, {
-        method: "GET",
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      const data = await res.json();
-      if (res.ok) {
-        const mapped = data.data.map(svc => {
-          const rawIcon = svc.icon || svc.iconId || svc.iconName;
-          const IconComponent = svc.IconComponent || getIconComponentById(rawIcon);
-          return {
-            ...svc,
-            IconComponent,
-            iconId: String(rawIcon || "").trim(),
-            name: svc.name || svc.label || svc._id
-          };
+  useEffect(() => {
+    const fetchServices = async () => {
+      try {
+        const res = await fetch(`${import.meta.env.VITE_BASE_URL}/api/services`, {
+          method: "GET",
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          }
         });
-        setServiceTypes(mapped);
+        const data = await res.json();
+        if (res.ok) {
+          const mapped = data.data.map(svc => {
+            const rawIcon = svc.icon || svc.iconId || svc.iconName;
+            const IconComponent = svc.IconComponent || getIconComponentById(rawIcon);
+            return {
+              ...svc,
+              IconComponent,
+              iconId: String(rawIcon || "").trim(),
+              name: svc.name || svc.label || svc._id
+            };
+          });
+          setServiceTypes(mapped);
 
-        // 👇 set the FIRST service as default
-        if (mapped.length > 0) {
-          setFormData(prev => ({
-            ...prev,
-            serviceType: mapped[0]._id,
-            selectedIcon: mapped[0].iconId || mapped[0].icon,
-            selectedIconColor: mapped[0].color
-          }));
+          // 👇 set the FIRST service as default
+          if (mapped.length > 0) {
+            setFormData(prev => ({
+              ...prev,
+              serviceType: mapped[0]._id,
+              selectedIcon: mapped[0].iconId || mapped[0].icon,
+              selectedIconColor: mapped[0].color
+            }));
+          }
         }
+      } catch (error) {
+        console.error("Failed to fetch services:", error);
       }
-    } catch (error) {
-      console.error("Failed to fetch services:", error);
-    }
-  };
+    };
 
-  fetchServices();
-}, []);
+    fetchServices();
+  }, []);
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({
@@ -168,31 +169,31 @@ useEffect(() => {
     }));
   };
 
-const handleServiceTypeChange = (value) => {
-  if (value === "add-new") {
-    setShowNewServiceType(true);
-    setFormData((prev) => ({
-      ...prev,
-      serviceType: "",
-      selectedIcon: "__add-new__",   // 👈 special marker value
-      selectedIconColor: null
-    }));
-  } else {
-    setShowNewServiceType(false);
+  const handleServiceTypeChange = (value) => {
+    if (value === "add-new") {
+      setShowNewServiceType(true);
+      setFormData((prev) => ({
+        ...prev,
+        serviceType: "",
+        selectedIcon: "__add-new__",   // 👈 special marker value
+        selectedIconColor: null
+      }));
+    } else {
+      setShowNewServiceType(false);
 
-    // find the chosen service
-    const selectedService = serviceTypes.find(s => s._id === value);
+      // find the chosen service
+      const selectedService = serviceTypes.find(s => s._id === value);
 
-    setFormData((prev) => ({
-      ...prev,
-      serviceType: value,
-      newServiceType: "",
-      // 👇 sync icon + color
-      selectedIcon: selectedService?.iconId || selectedService?.icon || null,
-      selectedIconColor: selectedService?.color || null
-    }));
-  }
-};
+      setFormData((prev) => ({
+        ...prev,
+        serviceType: value,
+        newServiceType: "",
+        // 👇 sync icon + color
+        selectedIcon: selectedService?.iconId || selectedService?.icon || null,
+        selectedIconColor: selectedService?.color || null
+      }));
+    }
+  };
 
   const addNewServiceType = async () => {
     if (!formData.selectedIcon) {
@@ -235,15 +236,62 @@ const handleServiceTypeChange = (value) => {
   };
 
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    console.log('Form submitted:', formData);
-    // Here you would typically send data to backend
-  };
+const handleSubmit = async (e) => {
+  e.preventDefault();
+
+  try {
+    const res = await fetch(`${import.meta.env.VITE_BASE_URL}/api/locations`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`, // admin only
+      },
+      body: JSON.stringify({
+        serviceId: formData.serviceType,
+        name: formData.name,
+        address: formData.address,
+        phone1: formData.phone1,
+        phone2: formData.phone2,
+        email: formData.email,
+        latitude: parseFloat(formData.latitude),
+        longitude: parseFloat(formData.longitude),
+        selectedIcon: formData.selectedIcon,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      toast.success("Location added successfully!");
+      console.log("Saved:", data);
+      // Optionally reset form
+      setFormData({
+        name: "",
+        serviceType: "",
+        newServiceType: "",
+        phone1: "",
+        phone2: "",
+        email: "",
+        address: "",
+        latitude: null,
+        longitude: null,
+        selectedIcon: null,
+        selectedIconColor: null,
+      });
+    } else {
+      toast.error(data.message || "Failed to add location");
+    }
+  } catch (err) {
+    console.error("Error adding location:", err);
+    toast.error("Something went wrong");
+  }
+};
+
 
   const isFormValid = formData.name &&
     (formData.serviceType || formData.newServiceType) &&
     formData.phone1 &&
+    formData.email &&
     formData.address &&
     formData.latitude &&
     formData.longitude;
@@ -355,16 +403,32 @@ const handleServiceTypeChange = (value) => {
               </div>
 
               {/* Address */}
-              <div className="space-y-2">
-                <Label htmlFor="address">Address *</Label>
-                <Textarea
-                  id="address"
-                  placeholder="Enter the complete address"
-                  value={formData.address}
-                  onChange={(e) => handleInputChange('address', e.target.value)}
-                  rows={3}
-                  required
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="address">Address *</Label>
+                  <Textarea
+                    id="address"
+                    placeholder="Enter the complete address"
+                    value={formData.address}
+                    onChange={(e) => handleInputChange('address', e.target.value)}
+                    rows={3}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="Email address"
+                      value={formData.email}
+                      onChange={(e) => handleInputChange('email', e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -398,14 +462,14 @@ const handleServiceTypeChange = (value) => {
                   );
                 })}
 
-<div
-  className={`p-4 border-2 rounded-lg cursor-pointer flex flex-col items-center justify-center hover:bg-accent
+                <div
+                  className={`p-4 border-2 rounded-lg cursor-pointer flex flex-col items-center justify-center hover:bg-accent
     ${formData.selectedIcon === "__add-new__" ? "border-primary bg-primary/10" : "border-border"}`}
-  onClick={() => setIsIconModalOpen(true)}
->
-  <Plus className="h-6 w-6 text-primary" />
-  <span className="text-xs font-medium">Add Icon</span>
-</div>
+                  onClick={() => setIsIconModalOpen(true)}
+                >
+                  <Plus className="h-6 w-6 text-primary" />
+                  <span className="text-xs font-medium">Add Icon</span>
+                </div>
 
               </div>
 

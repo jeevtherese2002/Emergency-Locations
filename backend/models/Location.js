@@ -6,6 +6,7 @@ const locationSchema = new mongoose.Schema({
   address: { type: String, required: true },
   phone1: { type: String, required: true },
   phone2: { type: String },
+  email: { type: String, required: true },
   latitude: { type: Number, required: true },
   longitude: { type: Number, required: true },
   selectedIcon: { type: String, required: true },
