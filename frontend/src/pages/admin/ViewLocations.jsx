@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, Phone, Edit, Trash2, Eye, EyeOff, X, Mail } from 'lucide-react';
 import * as LucideIcons from "lucide-react";
 import mapboxgl from "mapbox-gl";
+import MapboxGeocoder from '@mapbox/mapbox-gl-geocoder';
+import '@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.css';
 import { createRoot } from 'react-dom/client';
 import { toast } from 'react-toastify';
 import "mapbox-gl/dist/mapbox-gl.css";
@@ -27,6 +29,8 @@ const ViewLocations = ({ onMenuItemClick }) => {
 
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
+  const geocoderRef = useRef(null);
+  const searchMarkerRef = useRef(null);
   const markersRef = useRef([]); // [{ marker, root, el, locId }]
 
   const BASE_URL = import.meta.env.VITE_BASE_URL;
@@ -100,7 +104,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
     return { className: "", style: { color } }; // assume hex/rgb/etc
   };
 
-  // Init map
+  // Init map + Geocoder search
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
@@ -113,6 +117,45 @@ const ViewLocations = ({ onMenuItemClick }) => {
 
     mapRef.current.addControl(new mapboxgl.NavigationControl());
 
+    // Add Mapbox Geocoder control (Search)
+    const geocoder = new MapboxGeocoder({
+      accessToken: mapboxgl.accessToken,
+      mapboxgl,
+      marker: false, // we manage our own marker
+      placeholder: 'Search location...',
+      proximity: undefined, // can set to user location [lng, lat] when known
+      types: 'poi,place,address,neighborhood,locality,region,country',
+    });
+    mapRef.current.addControl(geocoder, 'top-left');
+    geocoderRef.current = geocoder;
+
+    geocoder.on('result', (e) => {
+      const coords = e.result?.center || e.result?.geometry?.coordinates;
+      if (!coords) return;
+
+      // drop or move a search marker
+      try {
+        if (searchMarkerRef.current) {
+          searchMarkerRef.current.remove();
+          searchMarkerRef.current = null;
+        }
+      } catch {}
+      searchMarkerRef.current = new mapboxgl.Marker({ color: '#111827' }) // neutral-900
+        .setLngLat(coords)
+        .addTo(mapRef.current);
+
+      mapRef.current.flyTo({ center: coords, zoom: 14 });
+    });
+
+    geocoder.on('clear', () => {
+      try {
+        if (searchMarkerRef.current) {
+          searchMarkerRef.current.remove();
+          searchMarkerRef.current = null;
+        }
+      } catch {}
+    });
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -124,6 +167,11 @@ const ViewLocations = ({ onMenuItemClick }) => {
             .addTo(mapRef.current);
 
           mapRef.current.flyTo({ center: coords, zoom: 14 });
+
+          // update geocoder proximity to bias results near user
+          try {
+            geocoder.setProximity({ longitude: coords[0], latitude: coords[1] });
+          } catch {}
         },
         () => {
           console.warn("Location permission denied");
@@ -132,6 +180,21 @@ const ViewLocations = ({ onMenuItemClick }) => {
     }
 
     return () => {
+      // Cleanup search marker, geocoder, map
+      try {
+        if (searchMarkerRef.current) {
+          searchMarkerRef.current.remove();
+          searchMarkerRef.current = null;
+        }
+      } catch {}
+      try {
+        if (geocoderRef.current) {
+          // remove control before removing map
+          mapRef.current?.removeControl(geocoderRef.current);
+          geocoderRef.current = null;
+        }
+      } catch {}
+      // Cleanup custom markers
       markersRef.current.forEach(({ marker, root }) => {
         try { marker.remove(); } catch {}
         scheduleRootUnmount(root);
@@ -324,7 +387,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
                 bottom: -2,
                 width: 12,
                 height: 12,
-                color: '#ffffff', // white so it’s visible on colored bg
+                color: '#ffffff', // white for visibility on colored bg
                 filter: 'drop-shadow(0 0 2px rgba(0,0,0,0.5))',
                 backgroundColor: 'transparent',
                 borderRadius: '50%',
@@ -407,7 +470,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
     }
   };
 
-  // Backend: edit location (PUT /api/locations/:id) — requires backend endpoint
+  // Backend: edit location (PUT /api/locations/:id)
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -437,11 +500,10 @@ const ViewLocations = ({ onMenuItemClick }) => {
       const data = await res.json();
 
       if (!res.ok) {
-        toast.error(data?.message || "Failed to update location (ensure backend PUT /api/locations/:id exists)");
+        toast.error(data?.message || "Failed to update location");
         return;
       }
 
-      // Prefer data.data if backend returns updated doc; otherwise merge payload
       const updated = data?.data || { ...editingService, ...payload };
 
       setLocations(prev => prev.map(l => (l._id === editingService._id ? { ...l, ...updated } : l)));
@@ -456,7 +518,7 @@ const ViewLocations = ({ onMenuItemClick }) => {
     }
   };
 
-  // Backend: delete location (DELETE /api/locations/:id) — requires backend endpoint
+  // Backend: delete location (DELETE /api/locations/:id)
   const confirmDelete = async () => {
     if (!selectedService?._id) return;
 
@@ -474,12 +536,11 @@ const ViewLocations = ({ onMenuItemClick }) => {
         }
       });
 
-      // Some backends don't return JSON on delete; guard parsing
       let data = null;
       try { data = await res.json(); } catch {}
 
       if (!res.ok) {
-        toast.error((data && data.message) || "Failed to delete location (ensure backend DELETE /api/locations/:id exists)");
+        toast.error((data && data.message) || "Failed to delete location");
         return;
       }
 
