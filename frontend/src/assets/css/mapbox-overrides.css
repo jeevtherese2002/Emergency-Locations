@@ -1,0 +1,43 @@
+/* Hide Mapbox Directions panel when the map container has .directions-collapsed */
+.directions-collapsed .mapboxgl-ctrl-directions {
+  display: none !important;
+}
+
+/* Geocoder search icon and input normalization (prevents odd sizing/overlap from resets) */
+.mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--icon {
+  position: absolute !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  pointer-events: none;
+}
+.mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--icon-search {
+  left: 10px !important;
+  width: 18px !important;
+  height: 18px !important;
+  background-size: 18px 18px !important;
+  background-position: center center !important;
+  opacity: 0.8;
+}
+.mapboxgl-ctrl-geocoder input[type="text"] {
+  padding-left: 36px !important; /* leave room for the icon */
+  height: 36px !important;
+  line-height: 36px !important;
+}
+
+/* Optional: tighten geocoder width on narrow screens */
+@media (max-width: 640px) {
+  .mapboxgl-ctrl-geocoder {
+    max-width: 75vw !important;
+    min-width: 160px !important;
+  }
+
+  /* If the top-left X overlaps the geocoder on phones, push the geocoder down a bit */
+  .mapboxgl-ctrl-top-left .mapboxgl-ctrl-geocoder {
+    margin-top: 44px !important; /* roughly X button height + gap */
+  }
+}
+
+/* Optional dark mode tweak so the icon is visible on dark inputs */
+.dark .mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--icon-search {
+  filter: invert(1);
+}

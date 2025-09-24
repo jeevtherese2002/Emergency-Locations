@@ -4,14 +4,15 @@ import MapboxMap from './MapboxMap';
 import * as LucideIcons from "lucide-react";
 
 const Dashboard = ({ onMenuItemClick }) => {
-  const [selectedFilters, setSelectedFilters] = useState([]); // array of serviceId strings
+  const [selectedFilters, setSelectedFilters] = useState([]); // serviceId[]
   const [selectedLocation, setSelectedLocation] = useState(null);
-  const [serviceTypes, setServiceTypes] = useState([]); // services that have at least one location
+  const [serviceTypes, setServiceTypes] = useState([]); // services with at least one location
   const [locations, setLocations] = useState([]);
+  const [destination, setDestination] = useState(null);
+  const [routeActive, setRouteActive] = useState(false); // show/hide Clear button
 
   const BASE_URL = import.meta.env.VITE_BASE_URL;
 
-  // Helpers to resolve Lucide icon ids to components (same logic as admin)
   const toPascal = (s) =>
     String(s || "")
       .split(/[-_ ]+/)
@@ -22,11 +23,9 @@ const Dashboard = ({ onMenuItemClick }) => {
     if (!raw) return [];
     const r = String(raw).trim();
     const lower = r.toLowerCase();
-
     const strippedIcon = lower.replace(/icon$/i, "");
     const strippedLucide = strippedIcon.replace(/^lucide/i, "");
     const stripNonAlnum = strippedLucide.replace(/[^a-z0-9]+/gi, "");
-
     const candidates = new Set([
       lower,
       strippedIcon,
@@ -59,23 +58,18 @@ const Dashboard = ({ onMenuItemClick }) => {
   useEffect(() => {
     const fetchLocations = async () => {
       try {
-        const res = await fetch(`${BASE_URL}/api/locations`, {
-          method: "GET",
-          headers: { 'Content-Type': 'application/json' },
-        });
+        const res = await fetch(`${BASE_URL}/api/locations`, { method: "GET", headers: { 'Content-Type': 'application/json' } });
         const data = await res.json();
-
         if (!res.ok) {
           console.error("Failed to fetch locations:", data?.message);
           return;
         }
 
-        const uniqueServices = new Map();
-
+        const unique = new Map();
         const mapped = (data.data || []).map(loc => {
           const s = loc?.serviceId;
           const rawIcon = s?.icon || s?.iconId || s?.iconName;
-          const serviceObj = s && s._id ? {
+          const svc = s && s._id ? {
             _id: s._id,
             name: s.name,
             iconId: String(rawIcon || "").trim(),
@@ -83,9 +77,7 @@ const Dashboard = ({ onMenuItemClick }) => {
             IconComponent: getIconComponentById(rawIcon),
           } : null;
 
-          if (serviceObj && !uniqueServices.has(serviceObj._id)) {
-            uniqueServices.set(serviceObj._id, serviceObj);
-          }
+          if (svc && !unique.has(svc._id)) unique.set(svc._id, svc);
 
           return {
             _id: loc._id,
@@ -96,12 +88,12 @@ const Dashboard = ({ onMenuItemClick }) => {
             email: loc.email,
             latitude: loc.latitude,
             longitude: loc.longitude,
-            service: serviceObj,
+            service: svc,
           };
         });
 
         setLocations(mapped);
-        setServiceTypes(Array.from(uniqueServices.values()));
+        setServiceTypes(Array.from(unique.values()));
       } catch (e) {
         console.error("Failed to load locations:", e);
       }
@@ -111,10 +103,9 @@ const Dashboard = ({ onMenuItemClick }) => {
   }, [BASE_URL]);
 
   const toggleFilter = (serviceId) => {
-    setSelectedFilters(prev =>
-      prev.includes(serviceId)
-        ? prev.filter(id => id !== serviceId)
-        : [...prev, serviceId]
+    setSelectedFilters(prev => prev.includes(serviceId)
+      ? prev.filter(id => id !== serviceId)
+      : [...prev, serviceId]
     );
   };
 
@@ -126,11 +117,7 @@ const Dashboard = ({ onMenuItemClick }) => {
   const handleShare = (loc) => {
     const text = `${loc.name} - ${loc.address}${loc.phone1 ? ` - ${loc.phone1}` : ''}`;
     if (navigator.share) {
-      navigator.share({
-        title: loc.name,
-        text,
-        url: window.location.href,
-      });
+      navigator.share({ title: loc.name, text, url: window.location.href });
     } else {
       navigator.clipboard.writeText(text);
       alert('Service details copied to clipboard!');
@@ -138,45 +125,54 @@ const Dashboard = ({ onMenuItemClick }) => {
   };
 
   const handleGetDirections = (loc) => {
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${loc.latitude},${loc.longitude}`;
-    window.open(url, '_blank');
+    setDestination({ longitude: loc.longitude, latitude: loc.latitude });
   };
+
+  const clearDirections = () => {
+    setDestination(null);
+  };
+
+  // Responsive grid: wraps gracefully; Clear shows beside Share on mobile when route is active
+  const baseActionCols = 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4';
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      {/* Filter Section - services with locations (same UX as admin) */}
-      <div className="border-b border-border bg-card shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <h2 className="text-lg font-semibold text-foreground mb-3">Emergency Services</h2>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {serviceTypes.length > 0 ? (
-              serviceTypes.map((service) => {
-                const IconComponent = service.IconComponent || getIconComponentById(service.icon || service.iconId);
-                const isSelected = selectedFilters.includes(service._id);
 
-                return (
-                  <button
-                    key={service._id}
-                    onClick={() => toggleFilter(service._id)}
-                    className={`p-4 border-2 rounded-lg transition-all hover:bg-accent flex flex-col items-center gap-2
-                      ${isSelected ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
-                  >
-                    <IconComponent className="h-6 w-6" style={{ color: service.color || '#2563eb' }} />
-                    <span className="text-xs font-medium text-center">
-                      {service.name || service.iconId}
-                    </span>
-                  </button>
-                );
-              })
-            ) : (
-              <div className="col-span-full text-sm text-muted-foreground">
-                No services with locations available
-              </div>
-            )}
-          </div>
+{/* Filter Section - services with locations */}
+<div className="border-b border-border bg-card shadow-sm">
+  <div className="max-w-7xl mx-auto px-4 py-4">
+    <h2 className="text-lg font-semibold text-foreground mb-3">Emergency Services</h2>
+
+    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 sm:gap-3">
+      {serviceTypes.length > 0 ? (
+        serviceTypes.map((service) => {
+          const IconComponent = service.IconComponent || getIconComponentById(service.icon || service.iconId);
+          const isSelected = selectedFilters.includes(service._id);
+
+          return (
+            <button
+              key={service._id}
+              onClick={() => toggleFilter(service._id)}
+              className={`h-14 sm:h-18 p-2 sm:p-3 border-2 rounded-lg transition-all hover:bg-accent
+                          flex flex-col items-center justify-center gap-1 sm:gap-2
+                          ${isSelected ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
+            >
+              <IconComponent className="h-6 w-6" style={{ color: service.color || '#2563eb' }} />
+              <span className="text-xs font-medium text-center truncate w-full">
+                {service.name || service.iconId}
+              </span>
+            </button>
+          );
+        })
+      ) : (
+        <div className="col-span-full text-sm text-muted-foreground">
+          No services with locations available
         </div>
-      </div>
+      )}
+    </div>
+  </div>
+</div>
 
       {/* Map Area */}
       <div className="flex-1 relative">
@@ -184,27 +180,29 @@ const Dashboard = ({ onMenuItemClick }) => {
           locations={locations}
           selectedFilters={selectedFilters}
           onMarkerClick={setSelectedLocation}
+          destination={destination}
+          onRouteActiveChange={setRouteActive}
         />
 
-        {/* Location Details Popup (no edit/delete/toggle for user) */}
+        {/* Location Details Popup */}
         {selectedLocation && (
-          <div className="absolute inset-x-4 bottom-4 bg-card border border-border rounded-lg shadow-elegant p-4 z-50">
+          <div className="absolute inset-x-2 sm:inset-x-4 bottom-2 sm:bottom-4 bg-card border border-border rounded-lg shadow-elegant p-3 sm:p-4 z-50">
             <div className="flex justify-between items-start mb-3">
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <h3 className="text-lg font-semibold text-foreground">{selectedLocation.name}</h3>
+                  <h3 className="text-base sm:text-lg font-semibold text-foreground truncate">{selectedLocation.name}</h3>
                 </div>
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
-                  <MapPin className="w-4 h-4" />
-                  {selectedLocation.address}
+                  <MapPin className="w-4 h-4 flex-none" />
+                  <span className="truncate">{selectedLocation.address}</span>
                 </p>
                 {selectedLocation.phone1 && (
                   <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
-                    <Phone className="w-4 h-4" />
+                    <Phone className="w-4 h-4 flex-none" />
                     {selectedLocation.phone1}
                     {selectedLocation.phone2 && (
                       <>
-                        <Phone className="w-4 h-4 ml-4" />
+                        <Phone className="w-4 h-4 ml-4 flex-none" />
                         {selectedLocation.phone2}
                       </>
                     )}
@@ -212,43 +210,55 @@ const Dashboard = ({ onMenuItemClick }) => {
                 )}
                 {selectedLocation.email && (
                   <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
-                    <Mail className="w-4 h-4" />
-                    {selectedLocation.email}
+                    <Mail className="w-4 h-4 flex-none" />
+                    <span className="truncate">{selectedLocation.email}</span>
                   </p>
                 )}
               </div>
               <button
                 onClick={() => setSelectedLocation(null)}
-                className="text-muted-foreground hover:text-foreground p-1"
+                className="text-muted-foreground hover:text-foreground p-1 flex-none"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="flex gap-2">
+            {/* Actions: 2 columns on mobile; Clear appears next to Share when route active */}
+            <div className={`grid ${baseActionCols} gap-2`}>
               {selectedLocation.phone1 && (
                 <button
                   onClick={() => handleCall(selectedLocation.phone1)}
-                  className="flex-1 bg-primary text-primary-foreground py-2 px-4 rounded-lg font-medium hover:opacity-90 transition-opacity duration-200 flex items-center justify-center gap-2"
+                  className="w-full bg-primary text-primary-foreground py-2 px-3 rounded-lg font-medium hover:opacity-90 transition-opacity duration-200 flex items-center justify-center gap-2"
                 >
                   <Phone className="w-4 h-4" />
-                  Call
+                  <span className="text-sm">Call</span>
                 </button>
               )}
               <button
                 onClick={() => handleGetDirections(selectedLocation)}
-                className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-green-700 transition-colors duration-200 flex items-center justify-center gap-2"
+                className="w-full bg-green-600 text-white py-2 px-3 rounded-lg font-medium hover:bg-green-700 transition-colors duration-200 flex items-center justify-center gap-2"
               >
                 <Navigation className="w-4 h-4" />
-                Directions
+                <span className="text-sm">Directions</span>
               </button>
               <button
                 onClick={() => handleShare(selectedLocation)}
-                className="flex-1 bg-muted text-foreground py-2 px-4 rounded-lg font-medium hover:bg-muted/80 transition-colors duration-200 flex items-center justify-center gap-2"
+                className="w-full bg-muted text-foreground py-2 px-3 rounded-lg font-medium hover:bg-muted/80 transition-colors duration-200 flex items-center justify-center gap-2"
               >
                 <Share2 className="w-4 h-4" />
-                Share
+                <span className="text-sm">Share</span>
               </button>
+
+              {routeActive && (
+                <button
+                  onClick={clearDirections}
+                  className="w-full bg-gray-200 dark:bg-gray-700 text-foreground py-2 px-3 rounded-lg font-medium hover:opacity-90 transition-opacity duration-200 flex items-center justify-center gap-2"
+                  title="Clear directions"
+                >
+                  <X className="w-4 h-4" />
+                  <span className="text-sm">Clear</span>
+                </button>
+              )}
             </div>
           </div>
         )}
