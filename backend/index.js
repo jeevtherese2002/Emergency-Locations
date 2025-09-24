@@ -7,6 +7,7 @@ import UserRouter from './routes/userRoutes.js';
 import AdminRouter from './routes/adminRoutes.js';
 import ServiceRouter from './routes/serviceRoutes.js';
 import LocationRouter from './routes/locationRoutes.js';
+import SosRouter from './routes/sosRoutes.js';
 
 dotenv.config({ quiet: true });
 connectDB();
@@ -27,6 +28,8 @@ app.use('/api/admin', AdminRouter);
 
 app.use('/api/services', ServiceRouter);
 app.use('/api/locations', LocationRouter);
+
+app.use('/api/sos', SosRouter);
 
 const PORT = process.env.PORT;
 app.listen(PORT, () => { console.log(`Server is running on port ${PORT}`); });
