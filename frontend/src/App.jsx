@@ -10,7 +10,7 @@ import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 
 
-
+import UserShell from './components/user/UserShell.jsx';
 import UserApp from './components/user/UserApp.jsx';
 import ProfileCompletion from './pages/user/ProfileCompletion.jsx'
 import SosAlert from './components/user/SOSAlert.jsx'
@@ -33,7 +33,7 @@ const App = () => {
         <Route path="/admin/login" element={<AdminLogin />} />
 
         <Route element={<ProtectedRoute allowedRoles={['user']} />}>
-          <Route path="/user"  >
+          <Route path="/user" element={<UserShell />}>
             <Route path="dashboard" element={<UserApp />} />
             <Route path="complete-profile" element={<ProfileCompletion />} />
             <Route path="sos" element={<SosAlert />} />

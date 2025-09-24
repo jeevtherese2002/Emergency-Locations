@@ -24,7 +24,14 @@ const userSchema = new mongoose.Schema({
   createdOn: { type: Date, default: Date.now },
   profileCompleted: { type: Boolean, default: false },
   sosContacts: { type: [sosContactSchema], default: [] },
+  location: {
+    type: { type: String, enum: ["Point"] },
+    coordinates: { type: [Number] }, // [longitude, latitude]
+  },
+  lastLocationAt: { type: Date },
 });
+
+userSchema.index({ location: "2dsphere" });
 
 const User = mongoose.model("User", userSchema);
 

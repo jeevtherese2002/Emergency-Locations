@@ -116,3 +116,40 @@ export const updatePassword = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+export const updateLocation = async (req, res) => {
+  try {
+
+    const userId = req.user._id;
+
+    const x = req.body.x ?? req.body.lng ?? req.body.longitude;
+    const y = req.body.y ?? req.body.lat ?? req.body.latitude;
+
+    const longitude = Number(x);
+    const latitude = Number(y);
+
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+      return res.status(400).json({ message: 'longitude/latitude (or lng/lat or x/y) must be numbers' });
+    }
+    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+      return res.status(400).json({ message: 'Invalid coordinate range' });
+    }
+
+    const user = await User.findById(userId).select('_id location lastLocationAt');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    user.location = { type: 'Point', coordinates: [longitude, latitude] };
+    user.lastLocationAt = new Date();
+
+    await user.save();
+
+    return res.status(200).json({
+      message: 'Location updated',
+      location: user.location,
+      lastLocationAt: user.lastLocationAt,
+    });
+  } catch (err) {
+    console.error('updateLocation error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};

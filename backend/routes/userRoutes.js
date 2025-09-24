@@ -1,5 +1,5 @@
 import express from 'express';
-import { baseDetails, completeProfile, getAccount, updateAccount, updatePassword } from '../controllers/userController.js';
+import { baseDetails, completeProfile, getAccount, updateAccount, updateLocation, updatePassword } from '../controllers/userController.js';
 import { uploadProfilePic } from '../middleware/uploadMiddleware.js';
 import { verifyToken, checkRole } from '../middleware/verifyToken.js';
 
@@ -11,5 +11,6 @@ UserRouter.get('/my-account', verifyToken, checkRole('user'), getAccount);
 UserRouter.put('/my-account', verifyToken, checkRole('user'), uploadProfilePic, updateAccount);
 UserRouter.put('/change-password', verifyToken, checkRole('user'), updatePassword);
 
+UserRouter.put('/location', verifyToken, checkRole('user'), updateLocation);
 
 export default UserRouter;
