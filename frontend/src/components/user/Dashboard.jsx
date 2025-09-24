@@ -169,7 +169,7 @@ const Dashboard = ({ onMenuItemClick }) => {
                   <button
                     key={service._id}
                     onClick={() => toggleFilter(service._id)}
-                    className={`h-14 sm:h-16 p-2 sm:p-3 border-2 rounded-lg transition-all hover:bg-accent
+                    className={`h-14 sm:h-18 p-2 sm:p-3 border-2 rounded-lg transition-all hover:bg-accent
                           flex flex-col items-center justify-center gap-1 sm:gap-2
                           ${isSelected ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
                   >
