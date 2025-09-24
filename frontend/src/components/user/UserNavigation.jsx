@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { User, ChevronDown, Settings, Key, LogOut, Menu, X } from 'lucide-react';
+import { User, ChevronDown, Settings, Key, LogOut, Menu, X, Shield } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 const UserNavigation = ({ onMenuItemClick }) => {
@@ -105,6 +105,13 @@ const UserNavigation = ({ onMenuItemClick }) => {
                     <Key className="w-4 h-4" />
                     Change Password
                   </button>
+                  <button
+                    onClick={() => handleMenuItemClick('sosManagement')}
+                    className="flex items-center gap-3 w-full px-4 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors duration-200"
+                  >
+                    <Shield className="w-4 h-4" />
+                    SOS Management
+                  </button>
                   <hr className="my-2 border-border" />
                   <button
                     onClick={() => handleMenuItemClick('logout')}
@@ -165,6 +172,14 @@ const UserNavigation = ({ onMenuItemClick }) => {
                 <Key className="w-4 h-4" />
                 Change Password
               </button>
+              <button
+                onClick={() => handleMenuItemClick('sosManagement')}
+                className="flex items-center gap-3 w-full px-3 py-2 text-sm text-foreground hover:bg-muted rounded-lg transition-colors duration-200"
+              >
+                <Shield className="w-4 h-4" />
+                SOS Management
+              </button>
+              <hr className="my-2 border-border" />
               <button
                 onClick={() => handleMenuItemClick('logout')}
                 className="flex items-center gap-3 w-full px-3 py-2 text-sm text-destructive hover:bg-destructive/10 rounded-lg transition-colors duration-200"

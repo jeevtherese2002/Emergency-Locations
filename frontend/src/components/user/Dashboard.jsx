@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Phone, Share2, Navigation, X, Mail } from 'lucide-react';
+import { MapPin, Phone, Share2, Navigation, X, Mail, AlertTriangle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import MapboxMap from './MapboxMap';
 import * as LucideIcons from "lucide-react";
 
@@ -11,6 +12,7 @@ const Dashboard = ({ onMenuItemClick }) => {
   const [destination, setDestination] = useState(null);
   const [routeActive, setRouteActive] = useState(false); // show/hide Clear button
 
+  const navigate = useNavigate(); // NEW
   const BASE_URL = import.meta.env.VITE_BASE_URL;
 
   const toPascal = (s) =>
@@ -132,47 +134,60 @@ const Dashboard = ({ onMenuItemClick }) => {
     setDestination(null);
   };
 
-  // Responsive grid: wraps gracefully; Clear shows beside Share on mobile when route is active
   const baseActionCols = 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4';
 
   return (
     <div className="flex flex-col h-screen bg-background">
+      {/* Filter Section - services with locations */}
+      <div className="border-b border-border bg-card shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <h2 className="text-lg font-semibold text-foreground mb-3">Emergency Services</h2>
 
-
-{/* Filter Section - services with locations */}
-<div className="border-b border-border bg-card shadow-sm">
-  <div className="max-w-7xl mx-auto px-4 py-4">
-    <h2 className="text-lg font-semibold text-foreground mb-3">Emergency Services</h2>
-
-    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 sm:gap-3">
-      {serviceTypes.length > 0 ? (
-        serviceTypes.map((service) => {
-          const IconComponent = service.IconComponent || getIconComponentById(service.icon || service.iconId);
-          const isSelected = selectedFilters.includes(service._id);
-
-          return (
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 sm:gap-3">
+            {/* NEW: SOS tile (first item) */}
             <button
-              key={service._id}
-              onClick={() => toggleFilter(service._id)}
-              className={`h-14 sm:h-18 p-2 sm:p-3 border-2 rounded-lg transition-all hover:bg-accent
+              onClick={() => navigate('/user/sos')}
+              className="h-14 sm:h-16 p-0.5 rounded-lg border-2 border-red-600/60
+                         bg-gradient-to-b from-red-600 to-red-700 text-white
+                         shadow-[0_6px_20px_rgba(220,38,38,0.35)]
+                         hover:brightness-110 active:scale-[0.98] transition"
+              aria-label="Open SOS Alert"
+              title="Open SOS Alert"
+            >
+              <div className="h-full w-full rounded-md flex flex-col items-center justify-center gap-1 sm:gap-2 bg-red-600/10">
+                <AlertTriangle className="h-6 w-6" />
+                <span className="text-xs font-semibold tracking-wide">SOS</span>
+              </div>
+            </button>
+
+            {serviceTypes.length > 0 ? (
+              serviceTypes.map((service) => {
+                const IconComponent = service.IconComponent || getIconComponentById(service.icon || service.iconId);
+                const isSelected = selectedFilters.includes(service._id);
+
+                return (
+                  <button
+                    key={service._id}
+                    onClick={() => toggleFilter(service._id)}
+                    className={`h-14 sm:h-16 p-2 sm:p-3 border-2 rounded-lg transition-all hover:bg-accent
                           flex flex-col items-center justify-center gap-1 sm:gap-2
                           ${isSelected ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
-            >
-              <IconComponent className="h-6 w-6" style={{ color: service.color || '#2563eb' }} />
-              <span className="text-xs font-medium text-center truncate w-full">
-                {service.name || service.iconId}
-              </span>
-            </button>
-          );
-        })
-      ) : (
-        <div className="col-span-full text-sm text-muted-foreground">
-          No services with locations available
+                  >
+                    <IconComponent className="h-6 w-6" style={{ color: service.color || '#2563eb' }} />
+                    <span className="text-xs font-medium text-center truncate w-full">
+                      {service.name || service.iconId}
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="col-span-full text-sm text-muted-foreground">
+                No services with locations available
+              </div>
+            )}
+          </div>
         </div>
-      )}
-    </div>
-  </div>
-</div>
+      </div>
 
       {/* Map Area */}
       <div className="flex-1 relative">
@@ -223,7 +238,7 @@ const Dashboard = ({ onMenuItemClick }) => {
               </button>
             </div>
 
-            {/* Actions: 2 columns on mobile; Clear appears next to Share when route active */}
+            {/* Actions */}
             <div className={`grid ${baseActionCols} gap-2`}>
               {selectedLocation.phone1 && (
                 <button

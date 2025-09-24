@@ -4,6 +4,7 @@ import UserNavigation from './UserNavigation';
 import Dashboard from './Dashboard';
 import MyAccount from './MyAccount';
 import ChangePassword from './ChangePassword';
+import SOSManagement from './SOSManagement';
 
 const UserApp = () => {
   const [currentView, setCurrentView] = useState('dashboard'); // dashboard, myAccount, changePassword
@@ -15,6 +16,9 @@ const UserApp = () => {
         break;
       case 'changePassword':
         setCurrentView('changePassword');
+        break;
+      case 'sosManagement':
+        setCurrentView('sosManagement');
         break;
       case 'logout':
         // Handle logout logic here
@@ -35,9 +39,9 @@ const UserApp = () => {
   };
 
   // Show profile completion if profile is not complete
-//   if (!isProfileComplete) {
-//     return <ProfileCompletion onComplete={handleProfileComplete} />;
-//   }
+  //   if (!isProfileComplete) {
+  //     return <ProfileCompletion onComplete={handleProfileComplete} />;
+  //   }
 
   // Render main application with navigation
   return (
@@ -48,13 +52,17 @@ const UserApp = () => {
       {currentView === 'dashboard' && (
         <Dashboard onMenuItemClick={handleMenuItemClick} />
       )}
-      
+
       {currentView === 'myAccount' && (
         <MyAccount onBack={handleBackToDashboard} />
       )}
-      
+
       {currentView === 'changePassword' && (
         <ChangePassword onBack={handleBackToDashboard} />
+      )}
+
+      {currentView === 'sosManagement' && (
+        <SOSManagement onBack={handleBackToDashboard} />
       )}
     </div>
   );
