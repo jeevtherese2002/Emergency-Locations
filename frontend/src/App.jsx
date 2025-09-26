@@ -22,6 +22,7 @@ import AdminPassword from './pages/admin/ChangePassword.jsx'
 import AdminMyAccount from './pages/admin/AdminMyAccount.jsx'
 import AdminAddLocation from './pages/admin/AddLocation.jsx'
 import AdminViewLocation from './pages/admin/ViewLocations.jsx'
+import Reports from "./pages/admin/ReportsFeedback.jsx"
 
 const App = () => {
   return (
@@ -47,6 +48,7 @@ const App = () => {
             <Route path='account' element={<AdminMyAccount />} />
             <Route path='locations/add' element={<AdminAddLocation />} />
             <Route path='locations/view' element={<AdminViewLocation />} />
+            <Route path='reports' element={<Reports />} />
           </Route>
         </Route>
 

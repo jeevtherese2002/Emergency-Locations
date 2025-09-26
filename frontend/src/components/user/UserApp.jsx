@@ -5,6 +5,7 @@ import Dashboard from './Dashboard';
 import MyAccount from './MyAccount';
 import ChangePassword from './ChangePassword';
 import SOSManagement from './SOSManagement';
+import UserFeedback from './UserFeedback';
 
 const UserApp = () => {
   const [currentView, setCurrentView] = useState('dashboard'); // dashboard, myAccount, changePassword
@@ -19,6 +20,9 @@ const UserApp = () => {
         break;
       case 'sosManagement':
         setCurrentView('sosManagement');
+        break;
+      case 'feedback':
+        setCurrentView('feedback');
         break;
       case 'logout':
         // Handle logout logic here
@@ -63,6 +67,10 @@ const UserApp = () => {
 
       {currentView === 'sosManagement' && (
         <SOSManagement onBack={handleBackToDashboard} />
+      )}
+
+      {currentView === 'feedback' && (
+        <UserFeedback onBack={handleBackToDashboard} />
       )}
     </div>
   );
