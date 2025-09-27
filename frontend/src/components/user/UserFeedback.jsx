@@ -1,151 +1,271 @@
-import React, { useState, useMemo } from 'react';
-import { Star, MapPin, MessageSquare, Send, Eye, Search, Filter, X } from 'lucide-react';
-import { toast } from "react-toastify"
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+    Star,
+    MapPin,
+    MessageSquare,
+    Send,
+    Eye,
+    Search,
+    Filter,
+    X,
+    Loader2,
+    ChevronRight,
+    ChevronLeft,
+    ShieldAlert,
+    Sparkles,
+    CheckCircle2
+} from 'lucide-react';
+import { toast } from 'react-toastify';
+
+const PAGE_LIMIT_LOCATIONS = 12;
+const PAGE_LIMIT_REVIEWS = 10;
+const MESSAGE_CHAR_MAX = 500;
 
 const UserFeedback = () => {
-    const [selectedService, setSelectedService] = useState('');
-    const [rating, setRating] = useState(0);
-    const [hoverRating, setHoverRating] = useState(0);
-    const [message, setMessage] = useState('');
-    const [showExistingReviews, setShowExistingReviews] = useState(false);
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const BASE_URL = import.meta.env.VITE_BASE_URL;
+    const token = localStorage.getItem('token');
 
-    // Search and filter states
+    /* ---------------- State ---------------- */
+    const [services, setServices] = useState([]);
+    const [locationSummaries, setLocationSummaries] = useState([]);
+    const [locationLoading, setLocationLoading] = useState(false);
+    const [locationPage, setLocationPage] = useState(1);
+    const [locationPages, setLocationPages] = useState(1);
+    const [locationTotal, setLocationTotal] = useState(0);
+
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedServiceTypes, setSelectedServiceTypes] = useState([]);
+    const [selectedServiceFilter, setSelectedServiceFilter] = useState('all');
     const [showFilters, setShowFilters] = useState(false);
 
-    // Dummy emergency services data
-    const emergencyServices = [
-        { id: 1, name: 'City General Hospital', type: 'Hospital', address: '123 Medical St' },
-        { id: 2, name: 'Fire Station #3', type: 'Fire Station', address: '456 Safety Ave' },
-        { id: 3, name: 'Central Police Station', type: 'Police', address: '789 Law St' },
-        { id: 4, name: 'Emergency Clinic', type: 'Clinic', address: '321 Care Rd' },
-        { id: 5, name: 'Metro Ambulance Service', type: 'Ambulance', address: '654 Response Blvd' },
-        { id: 6, name: 'Westside Medical Center', type: 'Hospital', address: '987 Health Way' }
-    ];
+    const [selectedLocationId, setSelectedLocationId] = useState('');
+    const [selectedLocationMeta, setSelectedLocationMeta] = useState(null);
 
-    // Service types for filtering
-    const serviceTypes = ['Hospital', 'Fire Station', 'Police', 'Clinic', 'Ambulance'];
+    const [rating, setRating] = useState(0);
+    const [hoverRating, setHoverRating] = useState(0);
+    const [comment, setComment] = useState('');
+    const [anonymous, setAnonymous] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
 
-    // Filtered services based on search and service type filters
-    const filteredServices = useMemo(() => {
-        let filtered = emergencyServices;
+    const [reviews, setReviews] = useState([]);
+    const [reviewsLoading, setReviewsLoading] = useState(false);
+    const [reviewsPage, setReviewsPage] = useState(1);
+    const [reviewsPages, setReviewsPages] = useState(1);
+    const [reviewsTotal, setReviewsTotal] = useState(0);
+    const [showReviews, setShowReviews] = useState(true);
+    const [ratingSummary, setRatingSummary] = useState(null);
 
-        // Filter by search query
-        if (searchQuery.trim()) {
-            const query = searchQuery.toLowerCase();
-            filtered = filtered.filter(service =>
-                service.name.toLowerCase().includes(query) ||
-                service.type.toLowerCase().includes(query) ||
-                service.address.toLowerCase().includes(query)
-            );
+    const [initialFetchDone, setInitialFetchDone] = useState(false);
+
+    const authHeaders = () => {
+        if (!token) {
+            toast.error('Authentication required. Please log in.');
+            return null;
         }
-
-        // Filter by selected service types
-        if (selectedServiceTypes.length > 0) {
-            filtered = filtered.filter(service =>
-                selectedServiceTypes.includes(service.type)
-            );
-        }
-
-        return filtered;
-    }, [searchQuery, selectedServiceTypes]);
-
-    // Dummy existing reviews
-    const existingReviews = {
-        1: { // City General Hospital
-            averageRating: 4.2,
-            totalReviews: 23,
-            reviews: [
-                { id: 1, rating: 5, message: 'Excellent emergency care. Staff was very professional and quick.', date: '2024-01-20', anonymous: false, userName: 'Sarah M.' },
-                { id: 2, rating: 4, message: 'Good service but long wait times during peak hours.', date: '2024-01-18', anonymous: true, userName: 'Anonymous' },
-                { id: 3, rating: 3, message: 'Average experience. Could improve communication with patients.', date: '2024-01-15', anonymous: false, userName: 'John D.' }
-            ]
-        },
-        2: { // Fire Station #3
-            averageRating: 4.8,
-            totalReviews: 15,
-            reviews: [
-                { id: 4, rating: 5, message: 'Outstanding response time and professionalism. Thank you!', date: '2024-01-19', anonymous: false, userName: 'Mike R.' },
-                { id: 5, rating: 5, message: 'Heroes! Saved our home from a major fire.', date: '2024-01-12', anonymous: false, userName: 'Lisa K.' }
-            ]
-        }
+        return {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+        };
     };
 
-    const handleServiceSelect = (serviceId) => {
-        setSelectedService(serviceId);
+    const handleAuthError = (res) => {
+        if (res.status === 401 || res.status === 403) {
+            toast.error('Session expired or unauthorized. Please log in again.');
+            return true;
+        }
+        return false;
+    };
+
+    /* ---------------- Load Services ---------------- */
+    useEffect(() => {
+        let ignore = false;
+        const fetchServices = async () => {
+            if (!token) return; // stop spam to protected route
+            try {
+                const res = await fetch(`${BASE_URL}/api/services/user`, {
+                    headers: authHeaders()
+                });
+                if (handleAuthError(res)) return;
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.message || 'Failed to load services');
+                if (!ignore) setServices(data.data || []);
+            } catch (e) {
+                console.error(e);
+                toast.error(e.message || 'Failed to load services');
+            }
+        };
+        fetchServices();
+        return () => { ignore = true; };
+    }, [BASE_URL, token]);
+
+    /* ---------------- Fetch Location Summaries ---------------- */
+    const fetchLocationSummaries = useCallback(async (page = 1) => {
+        if (!token) {
+            setLocationSummaries([]);
+            return;
+        }
+        setLocationLoading(true);
+        try {
+            const params = new URLSearchParams();
+            params.set('page', page);
+            params.set('limit', PAGE_LIMIT_LOCATIONS);
+            if (searchQuery.trim()) params.set('search', searchQuery.trim());
+            if (selectedServiceFilter !== 'all') {
+                params.set('serviceId', selectedServiceFilter);
+            }
+
+            const res = await fetch(`${BASE_URL}/api/feedback/locations/summary?${params.toString()}`, {
+                headers: authHeaders()
+            });
+            if (handleAuthError(res)) {
+                setLocationSummaries([]);
+                return;
+            }
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Failed to load locations');
+
+            setLocationSummaries(data.data || []);
+            setLocationPage(data.page);
+            setLocationPages(data.pages);
+            setLocationTotal(data.total);
+        } catch (e) {
+            console.error(e);
+            toast.error(e.message || 'Failed loading locations');
+        } finally {
+            setLocationLoading(false);
+            setInitialFetchDone(true);
+        }
+    }, [BASE_URL, searchQuery, selectedServiceFilter, token]);
+
+    useEffect(() => {
+        fetchLocationSummaries(1);
+    }, [fetchLocationSummaries]);
+
+    /* ---------------- Fetch Reviews ---------------- */
+    const fetchReviews = useCallback(async (locId, page = 1) => {
+        if (!token || !locId) {
+            setReviews([]);
+            return;
+        }
+        setReviewsLoading(true);
+        try {
+            const res = await fetch(`${BASE_URL}/api/feedback/location/${locId}?page=${page}&limit=${PAGE_LIMIT_REVIEWS}`, {
+                headers: authHeaders()
+            });
+            if (handleAuthError(res)) {
+                setReviews([]);
+                return;
+            }
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Failed to load reviews');
+
+            setReviews(data.data || []);
+            setReviewsPage(data.page);
+            setReviewsPages(data.pages);
+            setReviewsTotal(data.total);
+            setRatingSummary(data.ratingSummary || null);
+        } catch (e) {
+            console.error(e);
+            toast.error(e.message || 'Failed loading reviews');
+        } finally {
+            setReviewsLoading(false);
+        }
+    }, [BASE_URL, token]);
+
+    /* ---------------- Handlers ---------------- */
+    const handleSelectLocation = (loc) => {
+        setSelectedLocationId(loc.locationId);
+        setSelectedLocationMeta(loc);
         setRating(0);
-        setMessage('');
-        setShowExistingReviews(false);
+        setHoverRating(0);
+        setComment('');
+        setAnonymous(false);
+        setReviewsPage(1);
+        setShowReviews(true);
+        fetchReviews(loc.locationId, 1);
     };
 
-    const handleServiceTypeToggle = (serviceType) => {
-        setSelectedServiceTypes(prev =>
-            prev.includes(serviceType)
-                ? prev.filter(type => type !== serviceType)
-                : [...prev, serviceType]
-        );
-    };
-
-    const clearAllFilters = () => {
-        setSearchQuery('');
-        setSelectedServiceTypes([]);
-    };
-
-    const handleStarClick = (starRating) => {
-        setRating(starRating);
-    };
-
-    const handleStarHover = (starRating) => {
-        setHoverRating(starRating);
-    };
-
-    const handleSubmit = async (e) => {
+    const handleSubmitFeedback = async (e) => {
         e.preventDefault();
-
-        if (!selectedService) {
-            toast.info("Please select a service to provide feedback for.");
+        if (!token) {
+            toast.error('Please log in to submit feedback');
             return;
         }
-
-        if (rating === 0) {
-            toast.info("Please provide a rating by selecting at least one star.");
+        if (!selectedLocationId) {
+            toast.info('Select a location first');
             return;
         }
+        if (rating < 1) {
+            toast.info('Please provide a rating');
+            return;
+        }
+        setSubmitting(true);
+        try {
+            const res = await fetch(`${BASE_URL}/api/feedback`, {
+                method: 'POST',
+                headers: authHeaders(),
+                body: JSON.stringify({
+                    locationId: selectedLocationId,
+                    rating,
+                    comment: comment.trim(),
+                    anonymous
+                })
+            });
+            if (handleAuthError(res)) return;
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Failed to submit feedback');
 
-        setIsSubmitting(true);
-
-        // Simulate API call
-        setTimeout(() => {
-            toast.success("Thank you for helping improve emergency services.");
-
-            // Reset form
-            setSelectedService('');
+            toast.success('Feedback submitted (pending approval)');
             setRating(0);
-            setMessage('');
-            setShowExistingReviews(false);
-            setIsSubmitting(false);
-        }, 1500);
+            setComment('');
+            setAnonymous(false);
+        } catch (e) {
+            console.error(e);
+            toast.error(e.message || 'Submit failed');
+        } finally {
+            setSubmitting(false);
+        }
     };
 
-    const renderStars = (starRating, isInteractive = false) => {
+    const handleLocationPageChange = (dir) => {
+        const next = locationPage + dir;
+        if (next >= 1 && next <= locationPages) {
+            fetchLocationSummaries(next);
+        }
+    };
+
+    const handleReviewsPageChange = (dir) => {
+        const next = reviewsPage + dir;
+        if (next >= 1 && next <= reviewsPages) {
+            fetchReviews(selectedLocationId, next);
+        }
+    };
+
+    const clearFilters = () => {
+        setSearchQuery('');
+        setSelectedServiceFilter('all');
+    };
+
+    /* ---------------- Derived ---------------- */
+    const serviceFilterOptions = useMemo(
+        () => [{ _id: 'all', name: 'All Services' }, ...services],
+        [services]
+    );
+
+    const renderStars = (value, interactive = false) => {
+        const active = interactive ? (hoverRating || rating) : value;
         return (
             <div className="flex gap-1">
-                {[...Array(5)].map((_, i) => {
-                    const starIndex = i + 1;
-                    const isFilled = starIndex <= (isInteractive ? (hoverRating || rating) : starRating);
-
+                {[1, 2, 3, 4, 5].map(i => {
+                    const filled = i <= active;
                     return (
                         <Star
                             key={i}
-                            className={`w-6 h-6 cursor-pointer transition-all duration-200 ${isFilled
-                                ? 'text-yellow-400 fill-yellow-400'
-                                : 'text-gray-300 hover:text-yellow-200'
-                                } ${isInteractive ? 'hover:scale-110' : ''}`}
-                            onClick={isInteractive ? () => handleStarClick(starIndex) : undefined}
-                            onMouseEnter={isInteractive ? () => handleStarHover(starIndex) : undefined}
-                            onMouseLeave={isInteractive ? () => setHoverRating(0) : undefined}
+                            className={`w-6 h-6 transition-colors duration-150 ${interactive ? 'cursor-pointer' : 'cursor-default'
+                                } ${filled ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'
+                                } ${interactive ? 'hover:scale-110' : ''}`}
+                            onClick={interactive ? () => setRating(i) : undefined}
+                            onMouseEnter={interactive ? () => setHoverRating(i) : undefined}
+                            onMouseLeave={interactive ? () => setHoverRating(0) : undefined}
                         />
                     );
                 })}
@@ -153,237 +273,446 @@ const UserFeedback = () => {
         );
     };
 
-    const selectedServiceData = emergencyServices.find(service => service.id === parseInt(selectedService));
-    const serviceReviews = selectedService ? existingReviews[selectedService] : null;
+    const ratingBreakdown = useMemo(() => {
+        if (!ratingSummary) return [];
+        const total = ratingSummary.totalReviews || 0;
+        return [5, 4, 3, 2, 1].map(star => {
+            const count = ratingSummary.breakdown?.[star] || 0;
+            const pct = total ? Math.round((count / total) * 100) : 0;
+            return { star, count, pct };
+        });
+    }, [ratingSummary]);
 
+    /* ---------------- Render ---------------- */
     return (
-        <div className="space-y-6 max-w-4xl mx-auto">
+        <div className="space-y-8 max-w-6xl mx-auto">
+            {/* Header */}
             <div>
-                <h1 className="text-3xl font-bold text-foreground">Report & Feedback</h1>
-                <p className="text-muted-foreground mt-2">Share your experience with emergency services to help improve community safety</p>
+                <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
+                    <MessageSquare className="w-8 h-8 text-primary" />
+                    Report & Feedback
+                </h1>
+                <p className="text-muted-foreground mt-2">
+                    Share your experience to improve emergency response quality for everyone.
+                </p>
+                {!token && (
+                    <p className="mt-3 text-sm text-destructive">
+                        You are not logged in. Please log in to view and submit feedback.
+                    </p>
+                )}
             </div>
 
-            {/* Search and Filters */}
-            <div className="bg-card border border-border rounded-lg p-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+            {/* Discovery & Filters */}
+            <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
                     <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
                         <MapPin className="w-5 h-5" />
-                        Find Emergency Services
+                        Emergency Service Locations
                     </h2>
-                    <button
-                        onClick={() => setShowFilters(!showFilters)}
-                        className="flex items-center gap-2 px-3 py-2 bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 transition-colors sm:w-auto w-full justify-center"
-                    >
-                        <Filter className="w-4 h-4" />
-                        Filters {selectedServiceTypes.length > 0 && `(${selectedServiceTypes.length})`}
-                    </button>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setShowFilters(prev => !prev)}
+                            disabled={!token}
+                            className="flex items-center gap-2 px-3 py-2 bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 transition-colors disabled:opacity-50"
+                        >
+                            <Filter className="w-4 h-4" />
+                            {showFilters ? 'Hide Filters' : 'Filters'}
+                        </button>
+                        {(searchQuery || selectedServiceFilter !== 'all') && (
+                            <button
+                                onClick={clearFilters}
+                                className="flex items-center gap-1 px-3 py-2 bg-background border border-border rounded-lg text-sm hover:bg-muted transition-colors"
+                            >
+                                <X className="w-4 h-4" />
+                                Clear
+                            </button>
+                        )}
+                    </div>
                 </div>
 
-                {/* Search Bar */}
+                {/* Search */}
                 <div className="relative mb-4">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                     <input
                         type="text"
-                        placeholder="Search by name, address, or service type..."
+                        placeholder="Search by name or address..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-10 pr-4 py-3 border border-border rounded-lg bg-background text-foreground placeholder-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200"
+                        disabled={!token}
+                        className="w-full pl-11 pr-4 py-3 border border-border rounded-lg bg-background text-foreground placeholder-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent transition disabled:opacity-50"
                     />
                     {searchQuery && (
                         <button
                             onClick={() => setSearchQuery('')}
-                            className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground hover:text-foreground transition-colors"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                         >
-                            <X className="w-4 h-4" />
+                            <X className="w-5 h-5" />
                         </button>
                     )}
                 </div>
 
-                {/* Service Type Filters */}
-                {showFilters && (
-                    <div className="mb-4 p-4 bg-muted/30 rounded-lg animate-fade-in">
-                        <div className="flex flex-wrap gap-2 mb-3">
-                            {serviceTypes.map(type => (
+                {/* Filters */}
+                {showFilters && token && (
+                    <div className="mb-6 p-4 bg-muted/30 rounded-lg border border-border/50">
+                        <label className="block text-xs font-medium text-muted-foreground mb-2">
+                            Service Type
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                            {serviceFilterOptions.map(s => (
                                 <button
-                                    key={type}
-                                    onClick={() => handleServiceTypeToggle(type)}
-                                    className={`px-3 py-1 rounded-full text-sm transition-all duration-200 ${selectedServiceTypes.includes(type)
-                                        ? 'bg-primary text-primary-foreground'
-                                        : 'bg-background border border-border text-foreground hover:border-primary/50'
+                                    key={s._id}
+                                    onClick={() => setSelectedServiceFilter(s._id)}
+                                    className={`px-3 py-1.5 rounded-full text-xs md:text-sm border transition ${selectedServiceFilter === s._id
+                                            ? 'bg-primary text-primary-foreground border-primary'
+                                            : 'bg-background text-foreground border-border hover:border-primary/50'
                                         }`}
                                 >
-                                    {type}
+                                    {s.name}
                                 </button>
                             ))}
                         </div>
-                        {(searchQuery || selectedServiceTypes.length > 0) && (
-                            <button
-                                onClick={clearAllFilters}
-                                className="text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-                            >
-                                <X className="w-3 h-3" />
-                                Clear all filters
-                            </button>
-                        )}
                     </div>
                 )}
 
-                {/* Results Count */}
-                <div className="mb-4">
-                    <p className="text-sm text-muted-foreground">
-                        {filteredServices.length === emergencyServices.length
-                            ? `Showing all ${emergencyServices.length} services`
-                            : `Found ${filteredServices.length} of ${emergencyServices.length} services`
-                        }
-                    </p>
+                {/* Locations Result Meta */}
+                <div className="flex items-center justify-between text-xs sm:text-sm text-muted-foreground mb-3">
+                    <span>
+                        {!token
+                            ? 'Login required.'
+                            : locationLoading
+                                ? 'Loading locations...'
+                                : locationTotal
+                                    ? `Page ${locationPage} of ${locationPages} (${locationTotal} total)`
+                                    : initialFetchDone
+                                        ? 'No locations found'
+                                        : 'Loading...'}
+                    </span>
+                    {token && locationPages > 1 && (
+                        <div className="flex items-center gap-1">
+                            <button
+                                disabled={locationPage === 1 || locationLoading}
+                                onClick={() => handleLocationPageChange(-1)}
+                                className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40"
+                            >
+                                <ChevronLeft className="w-4 h-4" />
+                            </button>
+                            <button
+                                disabled={locationPage === locationPages || locationLoading}
+                                onClick={() => handleLocationPageChange(1)}
+                                className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40"
+                            >
+                                <ChevronRight className="w-4 h-4" />
+                            </button>
+                        </div>
+                    )}
                 </div>
 
-                {/* Services Grid */}
-                {filteredServices.length > 0 ? (
-                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                        {filteredServices.map(service => (
-                            <button
-                                key={service.id}
-                                onClick={() => handleServiceSelect(service.id)}
-                                className={`text-left p-4 rounded-lg border-2 transition-all duration-200 hover:shadow-md ${selectedService === service.id.toString()
-                                    ? 'border-primary bg-primary/5'
-                                    : 'border-border bg-background hover:border-primary/50'
-                                    }`}
-                            >
-                                <h3 className="font-medium text-foreground">{service.name}</h3>
-                                <p className="text-sm text-muted-foreground">{service.type}</p>
-                                <p className="text-xs text-muted-foreground mt-1">{service.address}</p>
-                            </button>
-                        ))}
+                {/* Locations Grid */}
+                <div className="relative min-h-[120px]">
+                    {token && locationLoading && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                            <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                        </div>
+                    )}
+                    {token && !locationLoading && locationSummaries.length === 0 && initialFetchDone && (
+                        <div className="text-center py-10 text-muted-foreground">
+                            <ShieldAlert className="w-10 h-10 mx-auto mb-3" />
+                            <p>No matching locations.</p>
+                        </div>
+                    )}
+                    {!token && (
+                        <div className="text-center py-10 text-muted-foreground">
+                            Please log in to browse locations.
+                        </div>
+                    )}
+                    <div
+                        className={`grid gap-3 md:grid-cols-2 xl:grid-cols-3 transition-opacity ${locationLoading ? 'opacity-30 pointer-events-none' : 'opacity-100'
+                            }`}
+                    >
+                        {token && locationSummaries.map(loc => {
+                            const active = selectedLocationId === loc.locationId;
+                            return (
+                                <button
+                                    key={loc.locationId}
+                                    onClick={() => handleSelectLocation(loc)}
+                                    className={`text-left p-4 rounded-lg border-2 group transition-all duration-200 hover:shadow-sm relative ${active
+                                            ? 'border-primary bg-primary/5'
+                                            : 'border-border bg-background hover:border-primary/40'
+                                        }`}
+                                >
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <h3 className="font-medium text-foreground line-clamp-1">
+                                                {loc.name}
+                                            </h3>
+                                            <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                                {loc.address}
+                                            </p>
+                                        </div>
+                                        <span
+                                            className="inline-flex items-center justify-center rounded-full px-2 py-1 text-[10px] font-medium"
+                                            style={{
+                                                backgroundColor: '#00000010',
+                                                color: loc.service?.color || 'var(--primary)'
+                                            }}
+                                        >
+                                            {loc.service?.name || 'Service'}
+                                        </span>
+                                    </div>
+                                    <div className="mt-3 flex items-center gap-2">
+                                        {loc.avgRating ? (
+                                            <>
+                                                <div className="flex">
+                                                    {Array.from({ length: 5 }).map((_, i) => (
+                                                        <Star
+                                                            key={i}
+                                                            className={`w-4 h-4 ${i < Math.round(loc.avgRating)
+                                                                    ? 'text-yellow-400 fill-yellow-400'
+                                                                    : 'text-gray-300'
+                                                                }`}
+                                                        />
+                                                    ))}
+                                                </div>
+                                                <span className="text-xs text-muted-foreground">
+                                                    {loc.avgRating} ({loc.totalReviews})
+                                                </span>
+                                            </>
+                                        ) : (
+                                            <span className="text-xs italic text-muted-foreground flex items-center gap-1">
+                                                <Sparkles className="w-3 h-3" /> New
+                                            </span>
+                                        )}
+                                    </div>
+                                    {active && (
+                                        <div className="absolute top-2 right-2 text-primary">
+                                            <CheckCircle2 className="w-5 h-5" />
+                                        </div>
+                                    )}
+                                </button>
+                            );
+                        })}
                     </div>
-                ) : (
-                    <div className="text-center py-8">
-                        <MapPin className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-                        <p className="text-muted-foreground">No services found matching your criteria.</p>
-                        <button
-                            onClick={clearAllFilters}
-                            className="mt-2 text-primary hover:text-primary/80 transition-colors"
-                        >
-                            Clear filters to see all services
-                        </button>
-                    </div>
-                )}
+                </div>
             </div>
 
-            {/* Rating and Feedback Form */}
-            {selectedService && (
-                <div className="bg-card border border-border rounded-lg p-6 animate-fade-in">
-                    <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-                        <MessageSquare className="w-5 h-5" />
-                        Rate Your Experience with {selectedServiceData?.name}
-                    </h2>
+            {/* Selected Location Panel */}
+            {selectedLocationId && token && (
+                <div className="space-y-8">
+                    {/* Meta & Rating Summary */}
+                    <div className="bg-card border border-border rounded-xl p-6">
+                        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                            <div>
+                                <h2 className="text-xl font-semibold text-foreground flex items-center gap-2">
+                                    <MessageSquare className="w-5 h-5" />
+                                    {selectedLocationMeta?.name}
+                                </h2>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    {selectedLocationMeta?.address}
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Service Type: {selectedLocationMeta?.service?.name}
+                                </p>
+                            </div>
+                            {ratingSummary && (
+                                <div className="flex flex-col sm:flex-row gap-6">
+                                    <div className="flex flex-col items-center">
+                                        <div className="flex items-center gap-2">
+                                            {renderStars(Math.round(ratingSummary.avgRating || 0), false)}
+                                            <span className="text-lg font-semibold">
+                                                {ratingSummary.avgRating || '0.00'}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            {ratingSummary.totalReviews} review
+                                            {ratingSummary.totalReviews !== 1 && 's'}
+                                        </p>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                                        {ratingBreakdown.map(row => (
+                                            <div key={row.star} className="flex items-center gap-2">
+                                                <span className="w-10 text-right">{row.star}★</span>
+                                                <div className="flex-1 h-2 rounded bg-muted overflow-hidden">
+                                                    <div
+                                                        className="h-full bg-yellow-400 transition-all"
+                                                        style={{ width: `${row.pct}%` }}
+                                                    />
+                                                </div>
+                                                <span className="w-8 text-right text-muted-foreground">
+                                                    {row.count}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {!ratingSummary && (
+                                <div className="text-sm text-muted-foreground italic">
+                                    No approved reviews yet.
+                                </div>
+                            )}
+                        </div>
+                    </div>
 
-                    <form onSubmit={handleSubmit} className="space-y-6">
-                        {/* Star Rating */}
-                        <div>
-                            <label className="block text-sm font-medium text-foreground mb-3">
-                                How would you rate this service? <span className="text-destructive">*</span>
-                            </label>
-                            <div className="flex items-center gap-4">
-                                {renderStars(rating, true)}
-                                {(hoverRating || rating) > 0 && (
-                                    <span className="text-sm text-muted-foreground animate-fade-in">
-                                        {hoverRating || rating} out of 5 stars
-                                    </span>
+                    {/* Feedback Form */}
+                    <div className="bg-card border border-border rounded-xl p-6">
+                        <h3 className="text-lg font-semibold text-foreground mb-4">
+                            Share Your Experience
+                        </h3>
+                        <form onSubmit={handleSubmitFeedback} className="space-y-6">
+                            <div>
+                                <label className="block text-sm font-medium text-foreground mb-3">
+                                    Rating <span className="text-destructive">*</span>
+                                </label>
+                                <div className="flex items-center gap-4">
+                                    {renderStars(rating, true)}
+                                    {(hoverRating || rating) > 0 && (
+                                        <span className="text-sm text-muted-foreground">
+                                            {(hoverRating || rating)} / 5
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-foreground mb-2">
+                                    Comments (optional)
+                                </label>
+                                <textarea
+                                    value={comment}
+                                    onChange={(e) => setComment(e.target.value)}
+                                    maxLength={MESSAGE_CHAR_MAX}
+                                    placeholder="Describe your experience. Constructive detail helps everyone..."
+                                    className="w-full h-28 px-3 py-2 border border-border rounded-lg bg-background text-foreground placeholder-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
+                                />
+                                <div className="text-right text-xs text-muted-foreground mt-1">
+                                    {comment.length}/{MESSAGE_CHAR_MAX}
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                                <input
+                                    id="anonymous"
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-border"
+                                    checked={anonymous}
+                                    onChange={(e) => setAnonymous(e.target.checked)}
+                                />
+                                <label htmlFor="anonymous" className="text-sm text-muted-foreground">
+                                    Submit anonymously
+                                </label>
+                            </div>
+
+                            <div>
+                                <button
+                                    type="submit"
+                                    disabled={submitting}
+                                    className={`inline-flex items-center gap-2 px-5 py-3 rounded-lg font-medium bg-primary text-primary-foreground transition-all ${submitting
+                                            ? 'opacity-60 cursor-not-allowed'
+                                            : 'hover:bg-primary/90 hover:scale-[1.02]'
+                                        }`}
+                                >
+                                    {submitting ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            Submitting...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Send className="w-4 h-4" />
+                                            Submit Feedback
+                                        </>
+                                    )}
+                                </button>
+                                <p className="text-xs text-muted-foreground mt-2">
+                                    Your feedback will appear after admin approval.
+                                </p>
+                            </div>
+                        </form>
+                    </div>
+
+                    {/* Reviews */}
+                    <div className="bg-card border border-border rounded-xl p-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                                <Eye className="w-5 h-5" />
+                                Community Reviews
+                            </h3>
+                            <button
+                                onClick={() => setShowReviews(prev => !prev)}
+                                className="px-3 py-1.5 text-xs rounded-lg bg-muted text-muted-foreground hover:bg-muted/70 transition-colors"
+                            >
+                                {showReviews ? 'Hide' : 'Show'}
+                            </button>
+                        </div>
+
+                        {showReviews && (
+                            <div className="space-y-6">
+                                {reviewsLoading && (
+                                    <div className="flex items-center justify-center py-8">
+                                        <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                                    </div>
+                                )}
+                                {!reviewsLoading && reviews.length === 0 && (
+                                    <div className="text-center py-8 text-sm text-muted-foreground">
+                                        No approved reviews yet for this location.
+                                    </div>
+                                )}
+                                {!reviewsLoading && reviews.map(r => (
+                                    <div
+                                        key={r._id}
+                                        className="p-4 rounded-lg bg-muted/40 border border-border/60"
+                                    >
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-2">
+                                                {renderStars(r.rating, false)}
+                                                <span className="text-sm font-medium text-foreground">
+                                                    {r.userDisplay}
+                                                </span>
+                                            </div>
+                                            <span className="text-[11px] text-muted-foreground">
+                                                {new Date(r.createdAt).toLocaleDateString()}
+                                            </span>
+                                        </div>
+                                        {r.comment && (
+                                            <p className="text-sm text-muted-foreground whitespace-pre-line">
+                                                {r.comment}
+                                            </p>
+                                        )}
+                                    </div>
+                                ))}
+
+                                {reviewsPages > 1 && (
+                                    <div className="flex items-center justify-between pt-2">
+                                        <span className="text-xs text-muted-foreground">
+                                            Page {reviewsPage} of {reviewsPages} ({reviewsTotal} review{reviewsTotal !== 1 && 's'})
+                                        </span>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                disabled={reviewsPage === 1 || reviewsLoading}
+                                                onClick={() => handleReviewsPageChange(-1)}
+                                                className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40"
+                                            >
+                                                <ChevronLeft className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                                disabled={reviewsPage === reviewsPages || reviewsLoading}
+                                                onClick={() => handleReviewsPageChange(1)}
+                                                className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40"
+                                            >
+                                                <ChevronRight className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
-                        </div>
-
-                        {/* Message */}
-                        <div>
-                            <label className="block text-sm font-medium text-foreground mb-2">
-                                Share your experience (optional)
-                            </label>
-                            <textarea
-                                value={message}
-                                onChange={(e) => setMessage(e.target.value)}
-                                placeholder="Describe your experience with this emergency service. Your feedback helps improve community safety..."
-                                className="w-full h-24 px-3 py-2 border border-border rounded-lg bg-background text-foreground placeholder-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent resize-none transition-all duration-200"
-                                maxLength={500}
-                            />
-                            <p className="text-xs text-muted-foreground mt-1">{message.length}/500 characters</p>
-                        </div>
-
-                        {/* Submit Button */}
-                        <button
-                            type="submit"
-                            disabled={isSubmitting}
-                            className={`w-full md:w-auto px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium flex items-center gap-2 justify-center transition-all duration-200 ${isSubmitting
-                                ? 'opacity-50 cursor-not-allowed'
-                                : 'hover:bg-primary/90 hover:scale-105'
-                                }`}
-                        >
-                            {isSubmitting ? (
-                                <>
-                                    <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                                    Submitting...
-                                </>
-                            ) : (
-                                <>
-                                    <Send className="w-4 h-4" />
-                                    Submit Feedback
-                                </>
-                            )}
-                        </button>
-                    </form>
+                        )}
+                    </div>
                 </div>
             )}
 
-            {/* Existing Reviews Section */}
-            {selectedService && serviceReviews && (
-                <div className="bg-card border border-border rounded-lg p-6">
-                    <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                            <Eye className="w-5 h-5" />
-                            Community Reviews
-                        </h3>
-                        <button
-                            onClick={() => setShowExistingReviews(!showExistingReviews)}
-                            className="px-3 py-1 text-sm bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 transition-colors"
-                        >
-                            {showExistingReviews ? 'Hide' : 'View'} Reviews
-                        </button>
-                    </div>
-
-                    {/* Average Rating */}
-                    <div className="flex items-center gap-4 mb-4">
-                        <div className="flex items-center gap-2">
-                            {renderStars(Math.round(serviceReviews.averageRating))}
-                            <span className="text-lg font-semibold text-foreground">
-                                {serviceReviews.averageRating}
-                            </span>
-                        </div>
-                        <span className="text-sm text-muted-foreground">
-                            ({serviceReviews.totalReviews} reviews)
-                        </span>
-                    </div>
-
-                    {/* Individual Reviews */}
-                    {showExistingReviews && (
-                        <div className="space-y-4 animate-fade-in">
-                            {serviceReviews.reviews.map(review => (
-                                <div key={review.id} className="bg-muted/50 rounded-lg p-4">
-                                    <div className="flex items-start justify-between mb-2">
-                                        <div className="flex items-center gap-2">
-                                            {renderStars(review.rating)}
-                                            <span className="text-sm font-medium text-foreground">
-                                                {review.userName}
-                                            </span>
-                                        </div>
-                                        <span className="text-xs text-muted-foreground">
-                                            {new Date(review.date).toLocaleDateString()}
-                                        </span>
-                                    </div>
-                                    <p className="text-sm text-muted-foreground">{review.message}</p>
-                                </div>
-                            ))}
-                        </div>
-                    )}
+            {!selectedLocationId && token && (
+                <div className="text-center text-xs text-muted-foreground">
+                    Select a location above to rate and view community feedback.
                 </div>
             )}
         </div>

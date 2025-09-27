@@ -8,6 +8,8 @@ import AdminRouter from './routes/adminRoutes.js';
 import ServiceRouter from './routes/serviceRoutes.js';
 import LocationRouter from './routes/locationRoutes.js';
 import SosRouter from './routes/sosRoutes.js';
+import FeedbackRouter from './routes/feedbackRoutes.js';
+import AdminFeedbackRouter from './routes/adminFeedbackRoutes.js';
 
 dotenv.config({ quiet: true });
 connectDB();
@@ -30,6 +32,10 @@ app.use('/api/services', ServiceRouter);
 app.use('/api/locations', LocationRouter);
 
 app.use('/api/sos', SosRouter);
+
+app.use("/api/feedback", FeedbackRouter);
+
+app.use("/api/admin/feedback", AdminFeedbackRouter);
 
 const PORT = process.env.PORT;
 app.listen(PORT, () => { console.log(`Server is running on port ${PORT}`); });

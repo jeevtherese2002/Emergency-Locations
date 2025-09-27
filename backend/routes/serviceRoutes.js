@@ -6,6 +6,7 @@ const ServiceRouter = express.Router();
 
 
 ServiceRouter.get("/", verifyToken, checkRole("admin"), getServices);
+ServiceRouter.get("/user", verifyToken, checkRole("user"), getServices);
 ServiceRouter.post("/", verifyToken, checkRole("admin"), addService);
 
 export default ServiceRouter;
