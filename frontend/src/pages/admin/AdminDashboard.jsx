@@ -1,10 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, AreaChart, Area } from 'recharts';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer,
+  LineChart, Line, PieChart, Pie, Cell, AreaChart, Area, Tooltip
+} from 'recharts';
+import {
+  TrendingUp, TrendingDown, Users, MapPin, FileText, MessageSquare,
+  Activity, Clock, ShieldAlert, Loader2
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
-import { TrendingUp, TrendingDown, Users, MapPin, FileText, MessageSquare, Activity, Clock } from 'lucide-react';
 
 const AdminDashboard = () => {
+  const BASE_URL = import.meta.env.VITE_BASE_URL;
+  const token = localStorage.getItem('token');
+
+  const [loading, setLoading] = useState(true);
+  const [animReady, setAnimReady] = useState(false);
+  const [summary, setSummary] = useState(null);
   const [stats, setStats] = useState({
     totalUsers: 0,
     activeUsers: 0,
@@ -14,80 +26,7 @@ const AdminDashboard = () => {
     responseTime: 0
   });
 
-  const [isLoaded, setIsLoaded] = useState(false);
-
-  // Animated counter effect
-  useEffect(() => {
-    const targetStats = {
-      totalUsers: 12847,
-      activeUsers: 8923,
-      emergencyLocations: 156,
-      reportsToday: 47,
-      feedbackReceived: 892,
-      responseTime: 2.4
-    };
-
-    const duration = 2000;
-    const steps = 60;
-    const stepDuration = duration / steps;
-
-    let step = 0;
-    const timer = setInterval(() => {
-      step++;
-      const progress = step / steps;
-      
-      setStats({
-        totalUsers: Math.floor(targetStats.totalUsers * progress),
-        activeUsers: Math.floor(targetStats.activeUsers * progress),
-        emergencyLocations: Math.floor(targetStats.emergencyLocations * progress),
-        reportsToday: Math.floor(targetStats.reportsToday * progress),
-        feedbackReceived: Math.floor(targetStats.feedbackReceived * progress),
-        responseTime: Number((targetStats.responseTime * progress).toFixed(1))
-      });
-
-      if (step >= steps) {
-        clearInterval(timer);
-        setStats(targetStats);
-        setIsLoaded(true);
-      }
-    }, stepDuration);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  // Chart data
-  const userGrowthData = [
-    { month: 'Jan', users: 1200, newUsers: 200, activeUsers: 890 },
-    { month: 'Feb', users: 1800, newUsers: 600, activeUsers: 1340 },
-    { month: 'Mar', users: 2400, newUsers: 600, activeUsers: 1780 },
-    { month: 'Apr', users: 3200, newUsers: 800, activeUsers: 2400 },
-    { month: 'May', users: 4100, newUsers: 900, activeUsers: 3100 },
-    { month: 'Jun', users: 5200, newUsers: 1100, activeUsers: 3900 },
-    { month: 'Jul', users: 6800, newUsers: 1600, activeUsers: 5100 },
-    { month: 'Aug', users: 8400, newUsers: 1600, activeUsers: 6300 },
-    { month: 'Sep', users: 10200, newUsers: 1800, activeUsers: 7650 },
-    { month: 'Oct', users: 11800, newUsers: 1600, activeUsers: 8850 },
-    { month: 'Nov', users: 12600, newUsers: 800, activeUsers: 9450 },
-    { month: 'Dec', users: 12847, newUsers: 247, activeUsers: 8923 }
-  ];
-
-  const locationData = [
-    { name: 'Hospitals', value: 45, color: 'hsl(var(--primary))' },
-    { name: 'Fire Stations', value: 32, color: 'hsl(var(--destructive))' },
-    { name: 'Police Stations', value: 28, color: 'hsl(var(--warning))' },
-    { name: 'Clinics', value: 51, color: 'hsl(var(--success))' }
-  ];
-
-  const reportsTrendData = [
-    { day: 'Mon', reports: 12, resolved: 10, pending: 2 },
-    { day: 'Tue', reports: 19, resolved: 16, pending: 3 },
-    { day: 'Wed', reports: 15, resolved: 13, pending: 2 },
-    { day: 'Thu', reports: 22, resolved: 18, pending: 4 },
-    { day: 'Fri', reports: 28, resolved: 24, pending: 4 },
-    { day: 'Sat', reports: 18, resolved: 15, pending: 3 },
-    { day: 'Sun', reports: 14, resolved: 12, pending: 2 }
-  ];
-
+  // Static response time chart (dummy)
   const responseTimeData = [
     { hour: '00:00', time: 3.2 },
     { hour: '04:00', time: 2.8 },
@@ -97,39 +36,132 @@ const AdminDashboard = () => {
     { hour: '20:00', time: 2.4 }
   ];
 
-  const chartConfig = {
-    users: {
-      label: "Total Users",
-      color: "hsl(var(--primary))",
-    },
-    newUsers: {
-      label: "New Users",
-      color: "hsl(var(--success))",
-    },
-    activeUsers: {
-      label: "Active Users",
-      color: "hsl(var(--warning))",
-    },
-    reports: {
-      label: "Reports",
-      color: "hsl(var(--primary))",
-    },
-    resolved: {
-      label: "Resolved",
-      color: "hsl(var(--success))",
-    },
-    pending: {
-      label: "Pending",
-      color: "hsl(var(--warning))",
-    },
-    time: {
-      label: "Response Time (min)",
-      color: "hsl(var(--primary))",
-    },
+  const fetchSummary = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/admin/dashboard/summary`, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to load dashboard');
+      setSummary(data.data);
+      animateCounters(data.data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+      setTimeout(() => setAnimReady(true), 50);
+    }
+  }, [BASE_URL, token]);
+
+  useEffect(() => {
+    fetchSummary();
+  }, [fetchSummary]);
+
+  const animateCounters = (data) => {
+    const target = {
+      totalUsers: data.userCount,
+      activeUsers: data.activeUsers,
+      emergencyLocations: data.locationCount,
+      reportsToday: data.reportsToday,
+      feedbackReceived: data.feedbackCount,
+      responseTime: data.avgResponseTime
+    };
+    const duration = 1500;
+    const frames = 60;
+    const stepTime = duration / frames;
+    let frame = 0;
+    const timer = setInterval(() => {
+      frame++;
+      const t = frame / frames;
+      setStats({
+        totalUsers: Math.round(target.totalUsers * t),
+        activeUsers: Math.round(target.activeUsers * t),
+        emergencyLocations: Math.round(target.emergencyLocations * t),
+        reportsToday: Math.round(target.reportsToday * t),
+        feedbackReceived: Math.round(target.feedbackReceived * t),
+        responseTime: Number((target.responseTime * t).toFixed(1))
+      });
+      if (frame >= frames) {
+        clearInterval(timer);
+        setStats(target);
+      }
+    }, stepTime);
   };
 
+  /* ------------ COLOR LOGIC FOR LOCATION DISTRIBUTION ------------- */
+  // Hash function to produce a numeric seed from a string (serviceId/name)
+  const hashString = (str = '') => {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+      h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+    }
+    return Math.abs(h);
+  };
+
+  // Generate an HSL color from a seed; adjust if collision
+  const generateDistinctColors = (items) => {
+    const used = new Set();
+    return items.map(item => {
+      let baseColor = item.color; // backend-provided (may be undefined)
+      if (baseColor && !used.has(baseColor)) {
+        used.add(baseColor);
+        return { ...item, _finalColor: baseColor };
+      }
+      // Need to generate
+      const seed = hashString(item.serviceId?.toString() || item.name || JSON.stringify(item));
+      // Derive a hue from seed
+      let hue = seed % 360;
+      let attempts = 0;
+      // If conflict, nudge hue until unique
+      while (attempts < 50) {
+        const candidate = `hsl(${hue} 65% 52%)`;
+        if (!used.has(candidate)) {
+          used.add(candidate);
+          return { ...item, _finalColor: candidate };
+        }
+        hue = (hue + 37) % 360; // jump 37 degrees each attempt
+        attempts++;
+      }
+      // Fallback (shouldn't happen)
+      const fallback = `hsl(${Math.random() * 360} 65% 52%)`;
+      used.add(fallback);
+      return { ...item, _finalColor: fallback };
+    });
+  };
+
+  const locationDistributionRaw = summary?.locationDistribution || [];
+  const locationDistribution = useMemo(
+    () => generateDistinctColors(locationDistributionRaw),
+    [locationDistributionRaw]
+  );
+
+  const recentActivity = summary?.recentActivity || [];
+  const userGrowthData = summary?.userGrowth || [];
+  const reportsTrendData = summary?.reportsTrend || [];
+
+  const pieColors = locationDistribution.map(ld => ld._finalColor);
+
+  const trendPercent = (seriesKey) => {
+    if (!userGrowthData || userGrowthData.length < 2) return { dir: 'up', val: 0 };
+    const last = userGrowthData[userGrowthData.length - 1]?.[seriesKey] || 0;
+    const prev = userGrowthData[userGrowthData.length - 2]?.[seriesKey] || 0;
+    if (prev === 0) return { dir: 'up', val: 100 };
+    const change = ((last - prev) / prev) * 100;
+    return { dir: change >= 0 ? 'up' : 'down', val: Math.abs(change).toFixed(1) };
+  };
+  const userTrend = trendPercent('users');
+  const feedbackTrend = trendPercent('newUsers');
+
   const StatCard = ({ title, value, subtitle, icon: Icon, trend, trendValue, delay = 0 }) => (
-    <Card className={`hover-scale ${isLoaded ? 'animate-fade-in' : 'opacity-0'}`} style={{ animationDelay: `${delay}ms` }}>
+    <Card
+      className={`transition-all duration-700 ${animReady ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'
+        }`}
+      style={{ transitionDelay: `${delay}ms` }}
+    >
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">
           {title}
@@ -137,7 +169,9 @@ const AdminDashboard = () => {
         <Icon className="h-4 w-4 text-muted-foreground" />
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold">{typeof value === 'number' ? value.toLocaleString() : value}</div>
+        <div className="text-2xl font-bold">
+          {typeof value === 'number' ? value.toLocaleString() : value}
+        </div>
         {subtitle && (
           <p className="text-xs text-muted-foreground">{subtitle}</p>
         )}
@@ -148,7 +182,10 @@ const AdminDashboard = () => {
             ) : (
               <TrendingDown className="h-3 w-3 text-destructive mr-1" />
             )}
-            <span className={`text-xs font-medium ${trend === 'up' ? 'text-success' : 'text-destructive'}`}>
+            <span
+              className={`text-xs font-medium ${trend === 'up' ? 'text-success' : 'text-destructive'
+                }`}
+            >
               {trendValue}% from last month
             </span>
           </div>
@@ -157,33 +194,14 @@ const AdminDashboard = () => {
     </Card>
   );
 
-  const recentActivities = [
-    { id: 1, action: 'New user registration', user: 'John Doe', time: '2 min ago', type: 'user' },
-    { id: 2, action: 'Emergency report submitted', user: 'Medical Center', time: '5 min ago', type: 'emergency' },
-    { id: 3, action: 'Location updated', user: 'City Hospital', time: '12 min ago', type: 'location' },
-    { id: 4, action: 'Feedback received', user: 'Sarah Wilson', time: '18 min ago', type: 'feedback' },
-    { id: 5, action: 'Report resolved', user: 'Admin Team', time: '25 min ago', type: 'resolved' }
-  ];
-
-  const getActivityIcon = (type) => {
-    switch (type) {
-      case 'user': return <Users className="h-4 w-4 text-primary" />;
-      case 'emergency': return <Activity className="h-4 w-4 text-destructive" />;
-      case 'location': return <MapPin className="h-4 w-4 text-success" />;
-      case 'feedback': return <MessageSquare className="h-4 w-4 text-warning" />;
-      case 'resolved': return <FileText className="h-4 w-4 text-success" />;
-      default: return <Clock className="h-4 w-4 text-muted-foreground" />;
-    }
-  };
-
   const CustomTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
+    if (active && payload?.length) {
       return (
-        <div className="bg-background border border-border rounded-lg shadow-lg p-3">
-          <p className="font-medium">{label}</p>
-          {payload.map((entry, index) => (
-            <p key={index} className="text-sm" style={{ color: entry.color }}>
-              {entry.name}: {entry.value}
+        <div className="bg-background/95 border border-border rounded-md p-2 shadow-sm text-xs">
+          <p className="font-medium mb-1">{label}</p>
+          {payload.map(p => (
+            <p key={p.dataKey} style={{ color: p.color }}>
+              {p.name || p.dataKey}: {p.value}
             </p>
           ))}
         </div>
@@ -193,46 +211,64 @@ const AdminDashboard = () => {
   };
 
   const CustomPieTooltip = ({ active, payload }) => {
-    if (active && payload && payload.length) {
+    if (active && payload?.length) {
+      const item = payload[0].payload;
       return (
-        <div className="bg-background border border-border rounded-lg shadow-lg p-3">
-          <p className="font-medium">{payload[0].payload.name}</p>
-          <p className="text-sm text-muted-foreground">
-            Count: {payload[0].value}
-          </p>
+        <div className="bg-background/95 border border-border rounded-md p-2 shadow-sm text-xs">
+          <p className="font-medium">{item.name}</p>
+          <p>Count: {item.count}</p>
         </div>
       );
     }
     return null;
   };
 
+  const relativeTime = (date) => {
+    const d = new Date(date);
+    const diff = Date.now() - d.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d ago`;
+  };
+
   return (
     <div className="space-y-6 p-6">
-      {/* Header */}
+      {loading && (
+        <div className="fixed inset-0 z-40 bg-background/70 backdrop-blur-sm flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">Loading dashboard...</p>
+          </div>
+        </div>
+      )}
+
       <div className="animate-fade-in">
         <h1 className="text-3xl font-bold tracking-tight">Dashboard Overview</h1>
         <p className="text-muted-foreground">
-          Welcome back! Here's what's happening with EasyConnect today.
+          Real‑time overview of user engagement, locations, and feedback.
         </p>
       </div>
 
-      {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <StatCard
           title="Total Users"
           value={stats.totalUsers}
           icon={Users}
-          trend="up"
-          trendValue="12.5"
+          trend={userTrend.dir}
+          trendValue={userTrend.val}
           delay={0}
         />
         <StatCard
           title="Active Users"
           value={stats.activeUsers}
-          subtitle="69.5% of total"
+          subtitle="Active = Total"
           icon={Activity}
-          trend="up"
-          trendValue="8.3"
+          trend={userTrend.dir}
+          trendValue={userTrend.val}
           delay={100}
         />
         <StatCard
@@ -247,16 +283,16 @@ const AdminDashboard = () => {
           title="Reports Today"
           value={stats.reportsToday}
           icon={FileText}
-          trend="down"
-          trendValue="2.4"
+          trend="up"
+          trendValue="0.0"
           delay={300}
         />
         <StatCard
           title="Total Feedback"
           value={stats.feedbackReceived}
           icon={MessageSquare}
-          trend="up"
-          trendValue="15.2"
+          trend={feedbackTrend.dir}
+          trendValue={feedbackTrend.val}
           delay={400}
         />
         <StatCard
@@ -264,58 +300,53 @@ const AdminDashboard = () => {
           value={`${stats.responseTime} min`}
           icon={Clock}
           trend="down"
-          trendValue="12.8"
+          trendValue="0.0"
           delay={500}
         />
       </div>
 
-      {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* User Growth Chart */}
-        <Card className={`${isLoaded ? 'animate-scale-in' : 'opacity-0'}`} style={{ animationDelay: '600ms' }}>
+        {/* User Growth */}
+        <Card className={`${animReady ? 'animate-scale-in' : 'opacity-0'}`}>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
-              User Growth Trends
-              <Badge variant="secondary">+24.5%</Badge>
+              User Growth
+              <Badge variant="secondary">Cap / month = 100</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={userGrowthData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <AreaChart data={userGrowthData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorUsers" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
+                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1} />
                     </linearGradient>
-                    <linearGradient id="colorActive" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--success))" stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor="hsl(var(--success))" stopOpacity={0.1}/>
+                    <linearGradient id="colorNew" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--success))" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="hsl(var(--success))" stopOpacity={0.1} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted))" />
-                  <XAxis 
-                    dataKey="month" 
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                  />
+                  <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" fontSize={12} />
                   <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
-                  <CustomTooltip />
+                  <Tooltip content={<CustomTooltip />} />
                   <Area
                     type="monotone"
                     dataKey="users"
                     stroke="hsl(var(--primary))"
-                    fillOpacity={1}
                     fill="url(#colorUsers)"
                     strokeWidth={2}
+                    name="Cumulative Users"
                   />
                   <Area
                     type="monotone"
-                    dataKey="activeUsers"
+                    dataKey="newUsers"
                     stroke="hsl(var(--success))"
-                    fillOpacity={1}
-                    fill="url(#colorActive)"
+                    fill="url(#colorNew)"
                     strokeWidth={2}
+                    name="New Users"
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -324,34 +355,20 @@ const AdminDashboard = () => {
         </Card>
 
         {/* Reports Trend */}
-        <Card className={`${isLoaded ? 'animate-scale-in' : 'opacity-0'}`} style={{ animationDelay: '700ms' }}>
+        <Card className={`${animReady ? 'animate-scale-in' : 'opacity-0'}`}>
           <CardHeader>
-            <CardTitle>Weekly Reports Overview</CardTitle>
+            <CardTitle>Reports (Last 7 Days)</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={reportsTrendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <BarChart data={reportsTrendData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted))" />
-                  <XAxis 
-                    dataKey="day" 
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                  />
+                  <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={12} />
                   <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
-                  <CustomTooltip />
-                  <Bar 
-                    dataKey="resolved" 
-                    stackId="a" 
-                    fill="hsl(var(--success))" 
-                    radius={[0, 0, 4, 4]} 
-                  />
-                  <Bar 
-                    dataKey="pending" 
-                    stackId="a" 
-                    fill="hsl(var(--warning))" 
-                    radius={[4, 4, 0, 0]} 
-                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar dataKey="resolved" stackId="a" fill="hsl(var(--success))" radius={[0, 0, 4, 4]} name="Resolved" />
+                  <Bar dataKey="pending" stackId="a" fill="hsl(var(--warning))" radius={[4, 4, 0, 0]} name="Pending" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -359,69 +376,75 @@ const AdminDashboard = () => {
         </Card>
 
         {/* Location Distribution */}
-        <Card className={`${isLoaded ? 'animate-scale-in' : 'opacity-0'}`} style={{ animationDelay: '800ms' }}>
+        <Card className={`${animReady ? 'animate-scale-in' : 'opacity-0'}`}>
           <CardHeader>
-            <CardTitle>Emergency Locations Distribution</CardTitle>
+            <CardTitle>Location Distribution</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={locationData}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {locationData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <CustomPieTooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="grid grid-cols-2 gap-2 mt-4">
-              {locationData.map((item, index) => (
-                <div key={index} className="flex items-center space-x-2">
-                  <div 
-                    className="w-3 h-3 rounded-full" 
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <span className="text-sm text-muted-foreground">{item.name}</span>
-                  <span className="text-sm font-medium ml-auto">{item.value}</span>
+            {locationDistribution.length === 0 ? (
+              <div className="h-[300px] flex items-center justify-center text-muted-foreground text-sm">
+                No active locations.
+              </div>
+            ) : (
+              <>
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={locationDistribution}
+                        dataKey="count"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={90}
+                        paddingAngle={4}
+                        nameKey="name"
+                      >
+                        {locationDistribution.map((entry, idx) => (
+                          <Cell key={idx} fill={entry._finalColor} />
+                        ))}
+                      </Pie>
+                      <Tooltip content={<CustomPieTooltip />} />
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
-              ))}
-            </div>
+                <div className="grid grid-cols-2 gap-2 mt-4">
+                  {locationDistribution.map((item, i) => (
+                    <div key={i} className="flex items-center space-x-2">
+                      <div
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: item._finalColor }}
+                      />
+                      <span className="text-xs text-muted-foreground truncate">{item.name}</span>
+                      <span className="text-xs font-medium ml-auto">{item.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
-        {/* Response Time Trend */}
-        <Card className={`${isLoaded ? 'animate-scale-in' : 'opacity-0'}`} style={{ animationDelay: '900ms' }}>
+        {/* Response Time (Static) */}
+        <Card className={`${animReady ? 'animate-scale-in' : 'opacity-0'}`}>
           <CardHeader>
-            <CardTitle>Response Time Trends</CardTitle>
+            <CardTitle>Response Time </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={responseTimeData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <LineChart data={responseTimeData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted))" />
-                  <XAxis 
-                    dataKey="hour" 
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                  />
+                  <XAxis dataKey="hour" stroke="hsl(var(--muted-foreground))" fontSize={12} />
                   <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
-                  <CustomTooltip />
+                  <Tooltip content={<CustomTooltip />} />
                   <Line
                     type="monotone"
                     dataKey="time"
                     stroke="hsl(var(--primary))"
                     strokeWidth={3}
-                    dot={{ fill: "hsl(var(--primary))", strokeWidth: 2, r: 6 }}
-                    activeDot={{ r: 8, stroke: "hsl(var(--primary))", strokeWidth: 2 }}
+                    dot={{ fill: 'hsl(var(--primary))', strokeWidth: 2, r: 5 }}
+                    activeDot={{ r: 7, stroke: 'hsl(var(--primary))', strokeWidth: 2 }}
+                    name="Minutes"
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -431,35 +454,49 @@ const AdminDashboard = () => {
       </div>
 
       {/* Recent Activity */}
-      <Card className={`${isLoaded ? 'animate-fade-in' : 'opacity-0'}`} style={{ animationDelay: '1000ms' }}>
+      <Card className={`${animReady ? 'animate-fade-in' : 'opacity-0'}`}>
         <CardHeader>
           <CardTitle>Recent Activity</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {recentActivities.map((activity, index) => (
-              <div 
-                key={activity.id} 
-                className="flex items-center space-x-4 p-3 rounded-lg hover:bg-muted/50 transition-all duration-200 animate-fade-in"
-                style={{ animationDelay: `${1100 + index * 100}ms` }}
-              >
-                <div className="flex-shrink-0">
-                  {getActivityIcon(activity.type)}
+          {recentActivity.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-6 text-center">
+              No recent activity.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {recentActivity.map((act, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center gap-4 p-3 rounded-lg border border-border/50 hover:bg-muted/40 transition"
+                >
+                  <div className="flex-shrink-0">
+                    {act.type === 'user' ? (
+                      <Users className="w-5 h-5 text-primary" />
+                    ) : act.type === 'feedback' ? (
+                      <MessageSquare className="w-5 h-5 text-warning" />
+                    ) : (
+                      <ShieldAlert className="w-5 h-5 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">
+                      {act.title}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      by {act.actor}
+                      {act.type === 'feedback' && act.meta?.location
+                        ? ` • ${act.meta.location}`
+                        : ''}
+                    </p>
+                  </div>
+                  <div className="text-xs text-muted-foreground whitespace-nowrap">
+                    {relativeTime(act.at)}
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">
-                    {activity.action}
-                  </p>
-                  <p className="text-sm text-muted-foreground truncate">
-                    by {activity.user}
-                  </p>
-                </div>
-                <div className="flex-shrink-0">
-                  <span className="text-xs text-muted-foreground">{activity.time}</span>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
